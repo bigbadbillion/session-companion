@@ -29,14 +29,14 @@ const History = () => {
             return (
               <motion.div
                 key={brief.briefId}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.06 }}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.08, duration: 0.4, ease: "easeOut" }}
               >
                 <Link to={`/brief/${brief.briefId}`}>
-                  <div className="rounded-2xl border border-border bg-card p-5 shadow-soft hover:shadow-lifted transition-all cursor-pointer group">
+                  <div className="rounded-2xl border border-border bg-card p-5 shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-300 cursor-pointer group">
                     <div className="flex items-start gap-4">
-                      <div className="h-10 w-10 rounded-full bg-sage-light flex items-center justify-center flex-shrink-0 text-lg">
+                      <div className="h-10 w-10 rounded-full bg-sage-light flex items-center justify-center flex-shrink-0 text-lg group-hover:scale-110 transition-transform duration-300">
                         {emoji}
                       </div>
                       <div className="flex-1 min-w-0">

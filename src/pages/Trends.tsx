@@ -9,11 +9,15 @@ const emotionIntensity: Record<string, number> = {
   flat: 3,
   reflective: 3,
   grounded: 2,
-  hopeful: 2,
+  hopeful: 3,
   sad: 5,
   anxious: 6,
   frustrated: 7,
   distressed: 9,
+  happy: 2,
+  excited: 3,
+  grateful: 2,
+  confident: 2,
 };
 
 const Trends = () => {
