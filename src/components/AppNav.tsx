@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { Home, Clock, BarChart3, Settings, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import preludeLogo from "@/assets/prelude-logo.png";
 
 const navItems = [
   { to: "/dashboard", icon: Home, label: "Home" },
@@ -16,9 +17,7 @@ const AppNav = () => {
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/90 backdrop-blur-md md:static md:border-t-0 md:border-r md:h-screen md:w-64 md:flex-shrink-0">
       {/* Desktop header */}
       <div className="hidden md:flex items-center gap-2 px-6 py-6 border-b border-border">
-        <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center">
-          <span className="text-primary-foreground font-display text-sm font-semibold">P</span>
-        </div>
+        <img src={preludeLogo} alt="Prelude" className="h-9 w-9 rounded-lg" />
         <span className="font-display text-lg font-semibold text-foreground">Prelude</span>
       </div>
 

@@ -59,7 +59,7 @@ export const mockSessions: MockSession[] = [
     completedAt: "2026-02-06T09:12:00Z",
     durationSeconds: 720,
     status: "brief-generated",
-    emotionalArc: { openingTone: "calm", peakIntensityTurn: 7, closingTone: "hopeful", dominantEmotion: "calm" },
+    emotionalArc: { openingTone: "calm", peakIntensityTurn: 7, closingTone: "hopeful", dominantEmotion: "happy" },
   },
   {
     sessionId: "s5",
@@ -67,7 +67,7 @@ export const mockSessions: MockSession[] = [
     completedAt: "2026-01-30T09:08:00Z",
     durationSeconds: 480,
     status: "brief-generated",
-    emotionalArc: { openingTone: "anxious", peakIntensityTurn: 3, closingTone: "grounded", dominantEmotion: "anxious" },
+    emotionalArc: { openingTone: "anxious", peakIntensityTurn: 3, closingTone: "grounded", dominantEmotion: "grateful" },
   },
   {
     sessionId: "s6",
@@ -75,7 +75,23 @@ export const mockSessions: MockSession[] = [
     completedAt: "2026-01-23T09:11:00Z",
     durationSeconds: 660,
     status: "brief-generated",
-    emotionalArc: { openingTone: "flat", peakIntensityTurn: 8, closingTone: "reflective", dominantEmotion: "flat" },
+    emotionalArc: { openingTone: "excited", peakIntensityTurn: 8, closingTone: "reflective", dominantEmotion: "excited" },
+  },
+  {
+    sessionId: "s7",
+    startedAt: "2026-01-16T09:00:00Z",
+    completedAt: "2026-01-16T09:10:00Z",
+    durationSeconds: 600,
+    status: "brief-generated",
+    emotionalArc: { openingTone: "flat", peakIntensityTurn: 5, closingTone: "hopeful", dominantEmotion: "hopeful" },
+  },
+  {
+    sessionId: "s8",
+    startedAt: "2026-01-09T09:00:00Z",
+    completedAt: "2026-01-09T09:09:00Z",
+    durationSeconds: 540,
+    status: "brief-generated",
+    emotionalArc: { openingTone: "calm", peakIntensityTurn: 3, closingTone: "calm", dominantEmotion: "calm" },
   },
 ];
 
@@ -146,16 +162,16 @@ export const mockBriefs: MockBrief[] = [
     generatedAt: "2026-02-06T09:13:00Z",
     editedByUser: false,
     content: {
-      emotionalState: "I started calm, which surprised me. As we talked, something bigger surfaced about my relationship with control. Ended feeling cautiously hopeful.",
+      emotionalState: "I came in feeling genuinely happy for the first time in weeks. Something clicked this week — like I gave myself permission to enjoy things without guilt.",
       themes: [
-        "Need for control in relationships",
-        "Fear of vulnerability with partner",
-        "Small wins this week I didn't notice",
+        "Reconnecting with old friend",
+        "Feeling lighter about work",
+        "Small wins adding up",
       ],
-      patientWords: "I think I control things because the alternative is feeling everything, and I'm not sure I can handle that.",
+      patientWords: "I think I forgot what it felt like to just enjoy something without waiting for the other shoe to drop.",
       focusItems: [
-        "Explore what 'handling everything' actually means to me",
-        "Acknowledge the wins — I actually set a boundary this week",
+        "Explore why happiness feels unfamiliar",
+        "Acknowledge the progress — I'm not where I was 3 months ago",
       ],
       patternNote: null,
     },
@@ -166,16 +182,16 @@ export const mockBriefs: MockBrief[] = [
     generatedAt: "2026-01-30T09:09:00Z",
     editedByUser: false,
     content: {
-      emotionalState: "I felt jittery and anxious — like I'd had too much coffee. By the end I felt more settled, like the anxiety had somewhere to go.",
+      emotionalState: "I felt genuinely grateful today — not the performative kind, but the kind that wells up. My partner said something that landed, and I wanted to hold onto it.",
       themes: [
-        "Social anxiety at a work event",
-        "Comparing myself to colleagues",
-        "Imposter feelings resurfacing",
+        "Gratitude for partner's patience",
+        "Recognizing growth in myself",
+        "Letting go of old narratives",
       ],
-      patientWords: "Everyone else seems to just... belong. I'm always calculating whether I'm doing it right.",
+      patientWords: "She said 'you're not the same person you were last year' and I actually believed her.",
       focusItems: [
-        "Talk about when the imposter feelings started",
-        "Ask about grounding techniques for social settings",
+        "Talk about what 'believing good things about myself' looks like",
+        "Ask about the old narratives I'm still carrying",
       ],
       patternNote: null,
     },
@@ -186,16 +202,16 @@ export const mockBriefs: MockBrief[] = [
     generatedAt: "2026-01-23T09:12:00Z",
     editedByUser: false,
     content: {
-      emotionalState: "I felt flat — like I was going through the motions. Something shifted when we talked about what I'm avoiding. By the end I felt more present.",
+      emotionalState: "I came in buzzing with excitement — I got offered a new role at work and I feel both thrilled and terrified. The energy was high the whole session.",
       themes: [
-        "Emotional numbness and avoidance",
-        "Avoiding difficult conversation with partner",
-        "Work feeling meaningless",
+        "New career opportunity",
+        "Fear of change mixed with excitement",
+        "Imposter feelings resurfacing",
       ],
-      patientWords: "I think the numbness is protection. If I don't feel it, I don't have to deal with it.",
+      patientWords: "I keep thinking they made a mistake picking me, but also — what if they didn't? What if I'm actually ready?",
       focusItems: [
-        "Explore what I'm protecting myself from",
-        "Talk about the conversation I keep postponing with my partner",
+        "Talk about the imposter feelings in context of real achievement",
+        "Explore what 'being ready' actually means to me",
       ],
       patternNote: null,
     },
@@ -211,6 +227,11 @@ export const emotionColors: Record<string, string> = {
   hopeful: "hsl(152 40% 45%)",
   reflective: "hsl(260 30% 55%)",
   grounded: "hsl(152 30% 40%)",
+  happy: "hsl(45 80% 55%)",
+  excited: "hsl(330 60% 55%)",
+  grateful: "hsl(170 50% 45%)",
+  confident: "hsl(200 60% 50%)",
+  distressed: "hsl(0 70% 45%)",
 };
 
 export const emotionEmojis: Record<string, string> = {
@@ -222,4 +243,9 @@ export const emotionEmojis: Record<string, string> = {
   hopeful: "🌱",
   reflective: "🤔",
   grounded: "🧘",
+  happy: "😊",
+  excited: "🎉",
+  grateful: "🙏",
+  confident: "💪",
+  distressed: "😣",
 };
