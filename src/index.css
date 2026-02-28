@@ -53,9 +53,9 @@
     --gradient-sage: linear-gradient(135deg, hsl(152 25% 36%), hsl(152 20% 45%));
     --gradient-sunset: linear-gradient(135deg, hsl(28 50% 85%), hsl(35 40% 93%));
 
-    --shadow-soft: 0 2px 20px -4px hsl(200 15% 15% / 0.08);
-    --shadow-lifted: 0 8px 30px -8px hsl(200 15% 15% / 0.12);
-    --shadow-glow: 0 0 40px -10px hsl(152 25% 36% / 0.15);
+    --shadow-soft: 0 2px 20px -4px hsl(200 15% 15% / 0.07), 0 1px 3px -1px hsl(200 15% 15% / 0.04);
+    --shadow-lifted: 0 12px 36px -8px hsl(200 15% 15% / 0.12), 0 4px 12px -4px hsl(200 15% 15% / 0.06);
+    --shadow-glow: 0 0 40px -10px hsl(152 25% 36% / 0.18), 0 0 16px -6px hsl(152 25% 36% / 0.1);
 
     --font-display: 'Lora', Georgia, serif;
     --font-body: 'Inter', system-ui, sans-serif;
@@ -129,10 +129,13 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
+    letter-spacing: -0.01em;
   }
 }
 
@@ -157,5 +160,9 @@
   }
   .shadow-glow {
     box-shadow: var(--shadow-glow);
+  }
+
+  .text-balance {
+    text-wrap: balance;
   }
 }

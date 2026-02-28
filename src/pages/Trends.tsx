@@ -48,7 +48,7 @@ const Trends = () => {
           transition={{ delay: 0.1, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           className="mb-6"
         >
-          <Card className="shadow-soft">
+          <Card className="shadow-soft rounded-2xl border-border/50">
             <CardHeader>
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 Emotional Intensity Over Time
@@ -92,7 +92,7 @@ const Trends = () => {
           transition={{ delay: 0.2, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           className="mb-6"
         >
-          <Card className="shadow-soft">
+          <Card className="shadow-soft rounded-2xl border-border/50">
             <CardHeader>
               <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                 Session-by-Session
@@ -132,7 +132,7 @@ const Trends = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ delay: 0.4, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           >
-            <Card className="shadow-soft border-primary/30 bg-sage-light">
+            <Card className="shadow-soft border-primary/30 bg-sage-light rounded-2xl">
               <CardContent className="p-6">
                 <div className="flex items-center gap-2 mb-2">
                   <Badge className="bg-primary text-primary-foreground border-0">📈 Recurring Pattern</Badge>

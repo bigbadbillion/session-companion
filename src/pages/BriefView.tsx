@@ -52,10 +52,10 @@ const BriefView = () => {
           <div className="space-y-4">
             {/* Emotional State */}
             <motion.div variants={fadeUp} custom={1}>
-              <Card className="shadow-soft border-border/50 overflow-hidden">
+              <Card className="shadow-soft border-border/40 overflow-hidden rounded-2xl">
                 <CardHeader className="pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-accent flex items-center justify-center">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-9 w-9 rounded-xl bg-accent flex items-center justify-center">
                       <Thermometer className="h-4 w-4 text-earth" />
                     </div>
                     <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
@@ -71,10 +71,10 @@ const BriefView = () => {
 
             {/* Themes */}
             <motion.div variants={fadeUp} custom={2}>
-              <Card className="shadow-soft border-border/50">
+              <Card className="shadow-soft border-border/40 rounded-2xl">
                 <CardHeader className="pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-sage-light flex items-center justify-center text-sm">🧵</div>
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-9 w-9 rounded-xl bg-sage-light flex items-center justify-center text-sm">🧵</div>
                     <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
                       Three Things on My Mind
                     </CardTitle>
@@ -101,10 +101,10 @@ const BriefView = () => {
 
             {/* Patient Words */}
             <motion.div variants={fadeUp} custom={3}>
-              <Card className="shadow-soft bg-sage-light border-primary/20 overflow-hidden">
+              <Card className="shadow-soft bg-sage-light border-primary/20 overflow-hidden rounded-2xl">
                 <CardHeader className="pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
                       <MessageSquareQuote className="h-4 w-4 text-primary" />
                     </div>
                     <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
@@ -122,10 +122,10 @@ const BriefView = () => {
 
             {/* Focus Items */}
             <motion.div variants={fadeUp} custom={4}>
-              <Card className="shadow-soft border-border/50">
+              <Card className="shadow-soft border-border/40 rounded-2xl">
                 <CardHeader className="pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-accent flex items-center justify-center">
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-9 w-9 rounded-xl bg-accent flex items-center justify-center">
                       <Target className="h-4 w-4 text-clay" />
                     </div>
                     <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
@@ -155,10 +155,10 @@ const BriefView = () => {
             {/* Pattern Note */}
             {brief.content.patternNote && (
               <motion.div variants={fadeUp} custom={5}>
-                <Card className="shadow-soft border-primary/30 bg-sage-light">
+                <Card className="shadow-soft border-primary/30 bg-sage-light rounded-2xl">
                   <CardHeader className="pb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
                         <TrendingUp className="h-4 w-4 text-primary" />
                       </div>
                       <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">

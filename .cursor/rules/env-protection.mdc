@@ -1,0 +1,17 @@
+---
+description: Protect .env and secret files from AI access
+alwaysApply: true
+---
+
+# Environment File Protection
+
+**NEVER** read, view, edit, write, append to, or access `.env` files in any way. This includes:
+
+- Do not use Read, Write, StrReplace, or any file tool on `.env` or `.env.*` files
+- Do not use shell commands (cat, head, tail, grep, sed, echo, printf) to read or modify `.env` files
+- Do not attempt to infer, log, or display the contents of `.env` files
+- If a task requires changes to `.env`, describe the required change in plain text and let the user do it manually
+
+The same applies to service account key files (`*.json` containing `private_key`).
+
+These files contain secrets (API keys, credentials) and must remain untouched by any agent.

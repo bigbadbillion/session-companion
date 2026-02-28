@@ -2,8 +2,8 @@ import { Phone } from "lucide-react";
 
 const CrisisFooter = () => {
   return (
-    <footer className="w-full border-t border-border bg-card/50 backdrop-blur-sm">
-      <div className="container mx-auto flex items-center justify-center gap-2 px-4 py-3 text-sm text-muted-foreground">
+    <footer className="w-full border-t border-border/50 bg-card/30 backdrop-blur-sm">
+      <div className="container mx-auto flex items-center justify-center gap-2 px-4 py-3.5 text-sm text-muted-foreground">
         <Phone className="h-3.5 w-3.5 text-clay" />
         <span>
           If you're in crisis, contact the{" "}

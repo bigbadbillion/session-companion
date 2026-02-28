@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment & secrets
+.env
+.env.*
+
+# Service account keys
+prelude-488809-5d9b5fe674db.json
+*.json.bak

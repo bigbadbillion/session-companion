@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import AppLayout from "@/components/AppLayout";
 import { mockBriefs, mockSessions, emotionEmojis } from "@/data/mockData";
 import { format } from "date-fns";
+import { useAuth } from "@/contexts/AuthContext";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -18,6 +19,8 @@ const fadeUp = {
 };
 
 const Dashboard = () => {
+  const { user } = useAuth();
+  const firstName = user?.displayName?.split(" ")[0] || "there";
   const latestBrief = mockBriefs[0];
   const latestSession = mockSessions[0];
   const sessionCount = mockSessions.length;
@@ -29,7 +32,7 @@ const Dashboard = () => {
         <motion.div className="mb-8" initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.1 } } }}>
           <motion.div variants={fadeUp} custom={0} className="flex items-center gap-2 mb-1">
             <h1 className="font-display text-2xl md:text-3xl font-semibold text-foreground">
-              Good morning, Alex
+              Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, {firstName}
             </h1>
             <motion.span
               animate={{ rotate: [0, 14, -8, 14, -4, 10, 0] }}
@@ -52,7 +55,7 @@ const Dashboard = () => {
           transition={{ duration: 0.7, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
         >
           <Link to="/session">
-            <Card className="relative overflow-hidden bg-primary border-0 shadow-glow cursor-pointer group transition-all duration-500 hover:scale-[1.01] hover:shadow-lifted">
+            <Card className="relative overflow-hidden bg-primary border-0 shadow-glow cursor-pointer group transition-all duration-500 hover:scale-[1.01] hover:shadow-lifted rounded-2xl">
               <CardContent className="p-8 relative z-10">
                 <div className="flex items-center gap-4 mb-3">
                   <div className="h-14 w-14 rounded-2xl bg-primary-foreground/15 flex items-center justify-center backdrop-blur-sm">
@@ -114,7 +117,7 @@ const Dashboard = () => {
               </Link>
             </div>
             <Link to={`/brief/${latestBrief.briefId}`}>
-              <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group">
+              <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group rounded-2xl border-border/50">
                 <CardContent className="p-6">
                   <p className="text-xs text-muted-foreground mb-3">
                     {format(new Date(latestBrief.generatedAt), "EEEE, MMMM d")} · Session #{sessionCount}
@@ -145,7 +148,7 @@ const Dashboard = () => {
           <Link to="/history">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group">
+                <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group rounded-2xl border-border/50">
                   <CardContent className="p-5">
                     <div className="flex items-center gap-2 mb-2">
                       <Clock className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -162,7 +165,7 @@ const Dashboard = () => {
           <Link to="/trends">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group">
+                <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group rounded-2xl border-border/50">
                   <CardContent className="p-5">
                     <div className="flex items-center gap-2 mb-2">
                       <TrendingUp className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />

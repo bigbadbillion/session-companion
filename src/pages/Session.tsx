@@ -61,7 +61,7 @@ const Session = () => {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           >
-            <Card className="shadow-lifted border-border">
+            <Card className="shadow-lifted border-border/60 rounded-2xl">
               <CardHeader className="pb-4">
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-xl bg-accent flex items-center justify-center">
@@ -177,8 +177,8 @@ const Session = () => {
                   >
                     <Card className={`max-w-[80%] border-0 shadow-soft ${
                       turn.speaker === "patient"
-                        ? "bg-primary text-primary-foreground rounded-br-md"
-                        : "bg-card rounded-bl-md"
+                        ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md"
+                        : "bg-card rounded-2xl rounded-bl-md"
                     }`}>
                       <CardContent className="p-4 text-sm leading-relaxed">
                         {turn.text}
@@ -190,7 +190,7 @@ const Session = () => {
 
               {currentTurn < mockTranscript.length && sessionActive && !isPaused && (
                 <motion.div className="flex justify-start" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                  <Card className="bg-card border-0 shadow-soft rounded-bl-md">
+                  <Card className="bg-card border-0 shadow-soft rounded-2xl rounded-bl-md">
                     <CardContent className="p-4">
                       <div className="flex gap-1.5">
                         {[0, 1, 2].map((d) => (

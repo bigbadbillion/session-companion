@@ -1,6 +1,6 @@
 import { motion, useScroll, useTransform } from "framer-motion";
-import { Link } from "react-router-dom";
-import { ArrowRight, Mic, Shield, Heart, Sparkles, ChevronDown, Check, Star } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight, Mic, Shield, Heart, Sparkles, ChevronDown, Check, Star, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,8 +8,10 @@ import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import CrisisFooter from "@/components/CrisisFooter";
 import landingHero from "@/assets/landing-hero.jpg";
-import preludeLogo from "@/assets/prelude-logo.png";
-import { useRef } from "react";
+import PreludeLogo from "@/components/PreludeLogo";
+import { useRef, useState, useEffect } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
@@ -35,11 +37,34 @@ const staggerContainer = {
 };
 
 const Landing = () => {
+  const navigate = useNavigate();
+  const { user, loading, signInWithGoogle } = useAuth();
+  const [signingIn, setSigningIn] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const heroY = useTransform(scrollYProgress, [0, 1], [0, 150]);
   const heroOpacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
   const heroScale = useTransform(scrollYProgress, [0, 1], [1, 1.1]);
+
+  useEffect(() => {
+    if (!loading && user) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [user, loading, navigate]);
+
+  const handleSignIn = async () => {
+    setSigningIn(true);
+    try {
+      await signInWithGoogle();
+    } catch (error: any) {
+      console.error("Auth error:", error);
+      if (error.code !== "auth/popup-closed-by-user" && error.code !== "auth/redirect-cancelled-by-user") {
+        toast.error(`Sign-in failed: ${error.code || error.message}`);
+      }
+    } finally {
+      setSigningIn(false);
+    }
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-background overflow-x-hidden">
@@ -50,22 +75,38 @@ const Landing = () => {
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="container mx-auto flex items-center justify-between px-6 py-3">
+        <div className="container mx-auto flex items-center justify-between px-6 py-4">
           <motion.div
             className="flex items-center gap-2.5"
             whileHover={{ scale: 1.02 }}
             transition={{ type: "spring", stiffness: 400 }}
           >
-            <img src={preludeLogo} alt="Prelude" className="h-10 w-10 rounded-xl object-cover" />
+            <div className="h-10 w-10 rounded-xl bg-primary flex items-center justify-center shadow-glow flex-shrink-0">
+              <PreludeLogo className="h-6 w-6 text-primary-foreground" color="currentColor" />
+            </div>
             <span className="font-display text-xl font-semibold text-foreground">Prelude</span>
           </motion.div>
-          <div className="flex items-center gap-3">
-            <Link to="/dashboard">
-              <Button variant="ghost" size="sm" className="hidden sm:inline-flex">Sign In</Button>
-            </Link>
-            <Link to="/dashboard">
-              <Button variant="hero" size="sm">Get Started</Button>
-            </Link>
+          <div className="flex items-center gap-2.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden sm:inline-flex rounded-full px-5"
+              onClick={handleSignIn}
+              disabled={signingIn}
+            >
+              {signingIn ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Sign In
+            </Button>
+            <Button
+              variant="hero"
+              size="sm"
+              className="rounded-full px-5"
+              onClick={handleSignIn}
+              disabled={signingIn}
+            >
+              {signingIn ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Get Started
+            </Button>
           </div>
         </div>
       </motion.header>
@@ -93,7 +134,7 @@ const Landing = () => {
           <motion.h1
             variants={fadeUp}
             custom={1}
-            className="font-display text-4xl md:text-5xl lg:text-6xl font-semibold leading-[1.1] text-foreground mb-6"
+            className="font-display text-4xl md:text-5xl lg:text-6xl font-semibold leading-[1.08] tracking-tight text-foreground mb-6"
           >
             Walk into therapy
             <br />
@@ -109,22 +150,25 @@ const Landing = () => {
           <motion.p
             variants={fadeUp}
             custom={2}
-            className="text-lg md:text-xl text-muted-foreground leading-relaxed mb-10 max-w-lg mx-auto font-body"
+            className="text-lg md:text-xl text-muted-foreground/80 leading-relaxed mb-10 max-w-lg mx-auto font-body"
           >
             A 10-minute voice conversation before each session. Surface what matters. Arrive prepared.
           </motion.p>
           <motion.div variants={fadeUp} custom={3} className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/dashboard">
-              <Button variant="hero" size="lg" className="gap-2 px-8 group shadow-glow">
-                Start Your First Session
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-              </Button>
-            </Link>
-            <Link to="/dashboard">
-              <Button variant="soft" size="lg" className="px-8">
-                See How It Works
-              </Button>
-            </Link>
+            <Button
+              variant="hero"
+              size="lg"
+              className="gap-2 px-8 group shadow-glow"
+              onClick={handleSignIn}
+              disabled={signingIn}
+            >
+              {signingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Start Your First Session
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+            </Button>
+            <Button variant="soft" size="lg" className="px-8" onClick={() => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" })}>
+              See How It Works
+            </Button>
           </motion.div>
 
           {/* Social proof */}
@@ -161,7 +205,7 @@ const Landing = () => {
       </section>
 
       {/* How it works */}
-      <section className="py-24 px-6 bg-card/50">
+      <section id="how-it-works" className="py-24 px-6 bg-card/50">
         <div className="container mx-auto max-w-4xl">
           <motion.div
             className="text-center mb-16"
@@ -207,7 +251,7 @@ const Landing = () => {
               },
             ].map((item, i) => (
               <motion.div key={item.title} variants={scaleIn} custom={i}>
-                <Card className="h-full text-center border-border/50 bg-background shadow-soft hover:shadow-lifted hover:-translate-y-1.5 transition-all duration-500 group cursor-default">
+                <Card className="h-full text-center border-border/40 bg-background shadow-soft hover:shadow-lifted hover:-translate-y-1.5 transition-all duration-500 group cursor-default rounded-2xl">
                   <CardHeader className="pb-4">
                     <div className="mx-auto relative">
                       <div className="h-14 w-14 rounded-2xl bg-sage-light flex items-center justify-center mb-2 group-hover:rotate-0 rotate-3 transition-transform duration-500">
@@ -250,7 +294,7 @@ const Landing = () => {
               </motion.div>
             ))}
           </div>
-          <blockquote className="font-display text-2xl md:text-3xl italic text-foreground/80 leading-relaxed">
+          <blockquote className="font-display text-2xl md:text-3xl italic text-foreground/80 leading-snug">
             "Prelude doesn't replace therapy. It clears the fog so that when you sit down with your therapist, you already know what you need to say."
           </blockquote>
           <Separator className="w-16 mx-auto mt-8 mb-4" />
@@ -283,7 +327,7 @@ const Landing = () => {
             variants={staggerContainer}
           >
             <motion.div variants={scaleIn} custom={0}>
-              <Card className="h-full shadow-soft hover:shadow-lifted transition-all duration-300 border-border">
+              <Card className="h-full shadow-soft hover:shadow-lifted transition-all duration-300 border-border/60 rounded-2xl">
                 <CardHeader>
                   <CardTitle className="font-display text-lg">Free</CardTitle>
                   <CardDescription>Try Prelude</CardDescription>
@@ -298,14 +342,14 @@ const Landing = () => {
                       </li>
                     ))}
                   </ul>
-                  <Link to="/dashboard" className="block">
-                    <Button variant="outline" className="w-full rounded-full">Get Started</Button>
-                  </Link>
+                  <Button variant="outline" className="w-full rounded-full" onClick={handleSignIn} disabled={signingIn}>
+                    Get Started
+                  </Button>
                 </CardContent>
               </Card>
             </motion.div>
             <motion.div variants={scaleIn} custom={1}>
-              <Card className="h-full shadow-glow hover:shadow-lifted transition-all duration-300 border-2 border-primary relative overflow-hidden">
+              <Card className="h-full shadow-glow hover:shadow-lifted transition-all duration-300 border-2 border-primary relative overflow-hidden rounded-2xl">
                 <motion.div
                   className="absolute -top-px left-1/2 -translate-x-1/2"
                   animate={{ scale: [1, 1.05, 1] }}
@@ -334,9 +378,9 @@ const Landing = () => {
                       </li>
                     ))}
                   </ul>
-                  <Link to="/dashboard" className="block">
-                    <Button variant="hero" className="w-full">Start Free Trial</Button>
-                  </Link>
+                  <Button variant="hero" className="w-full" onClick={handleSignIn} disabled={signingIn}>
+                    Start Free Trial
+                  </Button>
                 </CardContent>
               </Card>
             </motion.div>
@@ -359,12 +403,10 @@ const Landing = () => {
           <p className="text-muted-foreground mb-8 max-w-md mx-auto">
             Your first session is free. No credit card required. Just your voice and 10 minutes.
           </p>
-          <Link to="/dashboard">
-            <Button variant="hero" size="lg" className="gap-2 group shadow-glow">
-              Start Your First Session
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-            </Button>
-          </Link>
+          <Button variant="hero" size="lg" className="gap-2 group shadow-glow" onClick={handleSignIn} disabled={signingIn}>
+            Start Your First Session
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+          </Button>
         </motion.div>
       </section>
 

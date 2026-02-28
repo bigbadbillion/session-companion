@@ -1,0 +1,4 @@
+# Secrets — never index or expose
+.env
+.env.*
+prelude-488809-5d9b5fe674db.json

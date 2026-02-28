@@ -37,7 +37,7 @@ const History = () => {
                 transition={{ delay: i * 0.06, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
               >
                 <Link to={`/brief/${brief.briefId}`}>
-                  <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group">
+                  <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group rounded-2xl border-border/50">
                     <CardContent className="p-5">
                       <div className="flex items-start gap-4">
                         <motion.div
