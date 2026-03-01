@@ -1,0 +1,22 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Sessions: authenticated users can only access their own
+    match /sessions/{sessionId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == resource.data.patientId;
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.patientId;
+    }
+
+    // Briefs: authenticated users can only access their own
+    match /briefs/{briefId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == resource.data.patientId;
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.patientId;
+    }
+  }
+}
