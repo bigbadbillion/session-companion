@@ -3,7 +3,7 @@ import { Home, Clock, BarChart3, Settings, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
-import PreludeLogo from "@/components/PreludeLogo";
+import preludeLogo from "@/assets/prelude-logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
@@ -27,9 +27,7 @@ const AppNav = () => {
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur-lg md:static md:border-t-0 md:border-r md:border-border/60 md:h-screen md:w-64 md:flex-shrink-0 md:bg-card/50">
       {/* Desktop header */}
       <div className="hidden md:flex items-center gap-3 px-5 py-5 border-b border-border/60 bg-gradient-to-b from-sage-light/40 to-transparent">
-        <div className="h-11 w-11 rounded-xl bg-primary flex items-center justify-center shadow-glow flex-shrink-0">
-          <PreludeLogo className="h-7 w-7 text-primary-foreground" color="currentColor" />
-        </div>
+        <img src={preludeLogo} alt="Prelude" className="h-11 w-11 rounded-full object-cover flex-shrink-0 shadow-soft" />
         <div>
           <span className="font-display text-lg font-semibold text-foreground leading-none block">Prelude</span>
           <span className="text-[11px] text-muted-foreground/70 font-medium tracking-wide">Therapy Prep</span>

@@ -14,7 +14,7 @@ if (!GEMINI_API_KEY) {
 const PORT = Number(process.env.SERVER_PORT) || 3001;
 
 const GEMINI_WS_URL =
-  "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
+  "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent";
 
 // --- Gemini Flash client for brief generation ---
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -41,9 +41,13 @@ app.post("/api/generate-brief", async (req, res) => {
       : transcript;
 
     const result = await flashModel.generateContent(prompt);
-    const text = result.response.text();
+    let text = result.response.text().trim();
 
-    // Try to parse as JSON (brief generator is expected to return JSON)
+    // Strip markdown code fences if present
+    if (text.startsWith("```")) {
+      text = text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    }
+
     try {
       const json = JSON.parse(text);
       return res.json(json);

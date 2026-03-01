@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import CrisisFooter from "@/components/CrisisFooter";
 import landingHero from "@/assets/landing-hero.jpg";
-import PreludeLogo from "@/components/PreludeLogo";
+import preludeLogo from "@/assets/prelude-logo.png";
 import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -81,9 +81,7 @@ const Landing = () => {
             whileHover={{ scale: 1.02 }}
             transition={{ type: "spring", stiffness: 400 }}
           >
-            <div className="h-10 w-10 rounded-xl bg-primary flex items-center justify-center shadow-glow flex-shrink-0">
-              <PreludeLogo className="h-6 w-6 text-primary-foreground" color="currentColor" />
-            </div>
+            <img src={preludeLogo} alt="Prelude" className="h-10 w-10 rounded-full object-cover flex-shrink-0 shadow-soft" />
             <span className="font-display text-xl font-semibold text-foreground">Prelude</span>
           </motion.div>
           <div className="flex items-center gap-2.5">

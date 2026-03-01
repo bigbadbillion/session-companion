@@ -1,14 +1,15 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Mic, Clock, TrendingUp, ArrowRight, Sparkles } from "lucide-react";
+import { Mic, Clock, TrendingUp, ArrowRight, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import AppLayout from "@/components/AppLayout";
-import { mockBriefs, mockSessions, emotionEmojis } from "@/data/mockData";
+import { emotionEmojis } from "@/data/mockData";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePatientData } from "@/hooks/usePatientData";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -20,10 +21,12 @@ const fadeUp = {
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const { briefs, sessions, loading, error } = usePatientData();
   const firstName = user?.displayName?.split(" ")[0] || "there";
-  const latestBrief = mockBriefs[0];
-  const latestSession = mockSessions[0];
-  const sessionCount = mockSessions.length;
+
+  const latestBrief = briefs[0] ?? null;
+  const latestSession = sessions[0] ?? null;
+  const sessionCount = sessions.length;
 
   return (
     <AppLayout>
@@ -43,7 +46,9 @@ const Dashboard = () => {
             </motion.span>
           </motion.div>
           <motion.p variants={fadeUp} custom={1} className="text-muted-foreground">
-            Your next session is <span className="text-foreground font-medium">tomorrow at 2:00 PM</span>
+            {sessionCount > 0
+              ? `You've completed ${sessionCount} session${sessionCount === 1 ? "" : "s"} so far`
+              : "Ready to prepare for your next session?"}
           </motion.p>
         </motion.div>
 
@@ -72,11 +77,10 @@ const Dashboard = () => {
                   </div>
                 </div>
                 <p className="text-primary-foreground/70 text-sm leading-relaxed max-w-md">
-                  Let's surface what matters before you walk in tomorrow. No agenda, no right answers.
+                  Let's surface what matters before your next session. No agenda, no right answers.
                 </p>
                 <ArrowRight className="absolute bottom-8 right-8 h-5 w-5 text-primary-foreground/30 group-hover:text-primary-foreground/60 group-hover:translate-x-1 transition-all duration-300" />
               </CardContent>
-              {/* Animated background shapes */}
               <motion.div
                 className="absolute top-0 right-0 w-48 h-48 bg-primary-foreground/5 rounded-full"
                 animate={{ scale: [1, 1.3, 1], x: [0, 10, 0], y: [0, -10, 0] }}
@@ -99,7 +103,29 @@ const Dashboard = () => {
         </motion.div>
 
         {/* Latest Brief Preview */}
-        {latestBrief && (
+        {error && (
+          <motion.div
+            className="mb-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <Card className="shadow-soft rounded-2xl border-destructive/30 bg-destructive/5">
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-destructive">Failed to load sessions: {error}</p>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+        {loading ? (
+          <motion.div
+            className="mb-8 flex items-center justify-center py-8"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <Loader2 className="h-5 w-5 text-muted-foreground animate-spin mr-2" />
+            <span className="text-sm text-muted-foreground">Loading your sessions...</span>
+          </motion.div>
+        ) : latestBrief ? (
           <motion.div
             className="mb-8"
             initial={{ opacity: 0, y: 24 }}
@@ -120,7 +146,7 @@ const Dashboard = () => {
               <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group rounded-2xl border-border/50">
                 <CardContent className="p-6">
                   <p className="text-xs text-muted-foreground mb-3">
-                    {format(new Date(latestBrief.generatedAt), "EEEE, MMMM d")} · Session #{sessionCount}
+                    {format(latestBrief.generatedAt.toDate(), "EEEE, MMMM d")} · Session #{sessionCount}
                   </p>
                   <p className="text-sm text-foreground/80 leading-relaxed mb-4">
                     {latestBrief.content.emotionalState}
@@ -135,6 +161,21 @@ const Dashboard = () => {
                 </CardContent>
               </Card>
             </Link>
+          </motion.div>
+        ) : (
+          <motion.div
+            className="mb-8"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.35 }}
+          >
+            <Card className="shadow-soft rounded-2xl border-border/50 border-dashed">
+              <CardContent className="p-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No sessions yet. Start your first prep session to see your brief here.
+                </p>
+              </CardContent>
+            </Card>
           </motion.div>
         )}
 
@@ -172,10 +213,14 @@ const Dashboard = () => {
                       <span className="text-xs text-muted-foreground">Trend</span>
                     </div>
                     <p className="font-display text-2xl font-bold text-foreground">
-                      {emotionEmojis[latestSession.emotionalArc.dominantEmotion] || "😌"}
+                      {latestSession
+                        ? (emotionEmojis[latestSession.emotionalArc.dominantEmotion] || "😌")
+                        : "—"}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1 capitalize">
-                      {latestSession.emotionalArc.dominantEmotion} this week
+                      {latestSession
+                        ? `${latestSession.emotionalArc.dominantEmotion} this week`
+                        : "No data yet"}
                     </p>
                   </CardContent>
                 </Card>

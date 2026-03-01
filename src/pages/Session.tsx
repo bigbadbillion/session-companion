@@ -1,46 +1,30 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Pause, Play, X, AlertTriangle, Shield } from "lucide-react";
+import { Mic, MicOff, X, Shield, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import CrisisFooter from "@/components/CrisisFooter";
+import { useAuth } from "@/contexts/AuthContext";
+import { useVoiceSession } from "@/hooks/useVoiceSession";
 
-const disclaimerText =
+const DISCLAIMER_TEXT =
   "Prelude is a personal wellness tool, not a medical or clinical service. It does not provide therapy, diagnosis, or treatment. If you are experiencing a mental health crisis, please contact the 988 Suicide & Crisis Lifeline — call or text 988.";
-
-const mockTranscript = [
-  { speaker: "agent" as const, text: "Hi Alex, good to hear your voice. You've got a session coming up tomorrow. We have about ten minutes — no agenda, no right answers. Let's just see what's been with you this week." },
-  { speaker: "patient" as const, text: "Yeah, it's been... a lot. Work has been insane and I had this conversation with my partner that I can't stop thinking about." },
-  { speaker: "agent" as const, text: "It sounds like the conversation with your partner might be carrying more weight than the work stress, even though you mentioned work first. What felt significant about that conversation?" },
-  { speaker: "patient" as const, text: "I think it's because they said something about me not being present, and I know they're right. I keep telling myself it's fine but my body is screaming that it's not." },
-  { speaker: "agent" as const, text: "That's a really honest thing to notice — the gap between what you're telling yourself and what your body is telling you. When did you first feel that tension this week?" },
-];
 
 const Session = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
-  const [sessionActive, setSessionActive] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [currentTurn, setCurrentTurn] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-  const [isMicActive, setIsMicActive] = useState(true);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!sessionActive || isPaused) return;
-    const timer = setInterval(() => setElapsed((prev) => prev + 1), 1000);
-    return () => clearInterval(timer);
-  }, [sessionActive, isPaused]);
+  const patientName = user?.displayName?.split(" ")[0] ?? "there";
 
-  useEffect(() => {
-    if (!sessionActive || isPaused) return;
-    if (currentTurn >= mockTranscript.length) return;
-    const delay = mockTranscript[currentTurn].speaker === "agent" ? 3000 : 5000;
-    const timer = setTimeout(() => setCurrentTurn((prev) => Math.min(prev + 1, mockTranscript.length)), delay);
-    return () => clearTimeout(timer);
-  }, [sessionActive, isPaused, currentTurn]);
+  const session = useVoiceSession({
+    patientId: user?.uid,
+    patientName,
+  });
 
   const formatTime = useCallback((s: number) => {
     const m = Math.floor(s / 60);
@@ -48,8 +32,28 @@ const Session = () => {
     return `${m}:${sec.toString().padStart(2, "0")}`;
   }, []);
 
-  const handleEndSession = () => navigate("/brief/b1");
-  const progressPct = Math.min((elapsed / 600) * 100, 100);
+  const progressPct = Math.min((session.elapsed / 600) * 100, 100);
+
+  // Auto-scroll transcript
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [session.transcript.length]);
+
+  const handleStart = async () => {
+    await session.startSession();
+  };
+
+  const handleEndSession = async () => {
+    const brief = await session.endSession();
+    if (brief) {
+      sessionStorage.setItem("prelude-brief", JSON.stringify(brief));
+      navigate("/brief/latest");
+    } else {
+      navigate("/dashboard");
+    }
+  };
+
+  // ── Disclaimer screen ──────────────────────────────────────────────────
 
   if (!disclaimerAccepted) {
     return (
@@ -74,7 +78,7 @@ const Session = () => {
                 </div>
               </CardHeader>
               <CardContent className="space-y-6">
-                <p className="text-sm text-foreground/80 leading-relaxed">{disclaimerText}</p>
+                <p className="text-sm text-foreground/80 leading-relaxed">{DISCLAIMER_TEXT}</p>
                 <div className="space-y-3">
                   <Button variant="hero" className="w-full" onClick={() => setDisclaimerAccepted(true)}>
                     I understand — start session
@@ -92,6 +96,74 @@ const Session = () => {
     );
   }
 
+  // ── Error screen ────────────────────────────────────────────────────────
+
+  if (session.status === "error") {
+    return (
+      <div className="flex min-h-screen flex-col bg-background">
+        <div className="flex-1 flex items-center justify-center px-6">
+          <motion.div
+            className="max-w-lg w-full text-center"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <div className="h-14 w-14 rounded-2xl bg-destructive/10 flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="h-7 w-7 text-destructive" />
+            </div>
+            <h2 className="font-display text-xl font-semibold mb-2">Something went wrong</h2>
+            <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
+              {session.errorMessage ?? "An unexpected error occurred. Please try again."}
+            </p>
+            <div className="flex gap-3 justify-center">
+              <Button variant="hero" onClick={() => window.location.reload()}>
+                Try Again
+              </Button>
+              <Button variant="ghost" onClick={() => navigate("/dashboard")}>
+                Go Back
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+        <CrisisFooter />
+      </div>
+    );
+  }
+
+  // ── Brief generation screen ─────────────────────────────────────────────
+
+  if (session.status === "ended" && session.isGeneratingBrief) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background">
+        <div className="flex-1 flex items-center justify-center px-6">
+          <motion.div
+            className="text-center"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+          >
+            <motion.div
+              className="h-16 w-16 rounded-full bg-sage-light flex items-center justify-center mx-auto mb-6"
+              animate={{ scale: [1, 1.08, 1] }}
+              transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+            >
+              <Loader2 className="h-7 w-7 text-primary animate-spin" />
+            </motion.div>
+            <h2 className="font-display text-xl font-semibold mb-2">Preparing your brief</h2>
+            <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+              Taking everything we talked about and putting it together for your therapist...
+            </p>
+          </motion.div>
+        </div>
+        <CrisisFooter />
+      </div>
+    );
+  }
+
+  // ── Main session UI ─────────────────────────────────────────────────────
+
+  const isActive = session.status === "active";
+  const isConnecting = session.status === "connecting";
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       {/* Session header */}
@@ -100,18 +172,22 @@ const Session = () => {
           <div className="flex items-center gap-3">
             <motion.div
               className="h-2.5 w-2.5 rounded-full bg-primary"
-              animate={sessionActive && !isPaused ? { scale: [1, 1.3, 1], opacity: [1, 0.6, 1] } : {}}
+              animate={isActive ? { scale: [1, 1.3, 1], opacity: [1, 0.6, 1] } : {}}
               transition={{ repeat: Infinity, duration: 1.5 }}
             />
             <Badge variant="secondary" className="font-normal text-xs">
-              {sessionActive ? (isPaused ? "Paused" : "Listening...") : "Ready"}
+              {isConnecting ? "Connecting..." : isActive ? "Listening..." : "Ready"}
             </Badge>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground font-mono">{formatTime(elapsed)} / 10:00</span>
-            <Button variant="ghost" size="sm" onClick={handleEndSession} className="text-muted-foreground">
-              <X className="h-4 w-4 mr-1" /> End
-            </Button>
+            <span className="text-sm text-muted-foreground font-mono">
+              {formatTime(session.elapsed)} / 10:00
+            </span>
+            {(isActive || isConnecting) && (
+              <Button variant="ghost" size="sm" onClick={handleEndSession} className="text-muted-foreground">
+                <X className="h-4 w-4 mr-1" /> End
+              </Button>
+            )}
           </div>
         </div>
         <div className="container mx-auto max-w-3xl mt-2">
@@ -121,7 +197,8 @@ const Session = () => {
 
       {/* Main session area */}
       <div className="flex-1 flex flex-col container mx-auto max-w-3xl px-6 py-8">
-        {!sessionActive ? (
+        {session.status === "idle" ? (
+          /* ── Tap to begin ────────────────────────────────────────── */
           <motion.div
             className="flex-1 flex flex-col items-center justify-center text-center"
             initial={{ opacity: 0, scale: 0.95 }}
@@ -132,9 +209,8 @@ const Session = () => {
               className="relative cursor-pointer mb-8"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setSessionActive(true)}
+              onClick={handleStart}
             >
-              {/* Ripple rings */}
               <motion.div
                 className="absolute inset-0 rounded-full bg-sage-light"
                 animate={{ scale: [1, 1.6], opacity: [0.4, 0] }}
@@ -162,33 +238,53 @@ const Session = () => {
               We'll talk for about 10 minutes. Say whatever comes to mind — there are no wrong answers.
             </p>
           </motion.div>
+        ) : isConnecting ? (
+          /* ── Connecting state ────────────────────────────────────── */
+          <motion.div
+            className="flex-1 flex flex-col items-center justify-center text-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <motion.div
+              className="h-16 w-16 rounded-full bg-sage-light flex items-center justify-center mb-6"
+              animate={{ scale: [1, 1.08, 1] }}
+              transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+            >
+              <Loader2 className="h-7 w-7 text-primary animate-spin" />
+            </motion.div>
+            <h2 className="font-display text-xl font-semibold text-foreground mb-2">Setting up...</h2>
+            <p className="text-muted-foreground text-sm max-w-sm">
+              Connecting to Prelude and preparing your microphone.
+            </p>
+          </motion.div>
         ) : (
+          /* ── Active session ──────────────────────────────────────── */
           <>
             {/* Transcript */}
             <div className="flex-1 space-y-4 mb-8 overflow-y-auto">
               <AnimatePresence>
-                {mockTranscript.slice(0, currentTurn).map((turn, i) => (
+                {session.transcript.map((turn, i) => (
                   <motion.div
-                    key={i}
+                    key={`${turn.timestamp}-${i}`}
                     className={`flex ${turn.speaker === "patient" ? "justify-end" : "justify-start"}`}
                     initial={{ opacity: 0, y: 16, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
                   >
-                    <Card className={`max-w-[80%] border-0 shadow-soft ${
-                      turn.speaker === "patient"
-                        ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md"
-                        : "bg-card rounded-2xl rounded-bl-md"
-                    }`}>
-                      <CardContent className="p-4 text-sm leading-relaxed">
-                        {turn.text}
-                      </CardContent>
+                    <Card
+                      className={`max-w-[80%] border-0 shadow-soft ${
+                        turn.speaker === "patient"
+                          ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md"
+                          : "bg-card rounded-2xl rounded-bl-md"
+                      }`}
+                    >
+                      <CardContent className="p-4 text-sm leading-relaxed">{turn.text}</CardContent>
                     </Card>
                   </motion.div>
                 ))}
               </AnimatePresence>
 
-              {currentTurn < mockTranscript.length && sessionActive && !isPaused && (
+              {session.transcript.length === 0 && isActive && (
                 <motion.div className="flex justify-start" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <Card className="bg-card border-0 shadow-soft rounded-2xl rounded-bl-md">
                     <CardContent className="p-4">
@@ -206,6 +302,8 @@ const Session = () => {
                   </Card>
                 </motion.div>
               )}
+
+              <div ref={transcriptEndRef} />
             </div>
 
             {/* Controls */}
@@ -215,22 +313,18 @@ const Session = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
             >
-              <Button
-                variant="outline"
-                size="icon"
-                className="rounded-full h-12 w-12 transition-all duration-200 hover:bg-sage-light hover:border-primary/30"
-                onClick={() => setIsPaused(!isPaused)}
-              >
-                {isPaused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
-              </Button>
               <motion.div whileTap={{ scale: 0.95 }}>
                 <Button
-                  variant={isMicActive ? "default" : "outline"}
+                  variant={session.isMicMuted ? "outline" : "default"}
                   size="icon"
                   className="rounded-full h-16 w-16 shadow-glow"
-                  onClick={() => setIsMicActive(!isMicActive)}
+                  onClick={session.toggleMic}
                 >
-                  {isMicActive ? <Mic className="h-6 w-6" /> : <MicOff className="h-6 w-6" />}
+                  {session.isMicMuted ? (
+                    <MicOff className="h-6 w-6" />
+                  ) : (
+                    <Mic className="h-6 w-6" />
+                  )}
                 </Button>
               </motion.div>
               <Button variant="soft" size="sm" className="rounded-full" onClick={handleEndSession}>
