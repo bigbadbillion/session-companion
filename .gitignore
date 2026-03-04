@@ -23,6 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+backend/.venv/
+*.egg-info/
+
 # Environment & secrets
 .env
 .env.*
