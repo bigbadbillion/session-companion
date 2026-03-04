@@ -2,8 +2,6 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { GeminiLiveClient, type TranscriptionData } from "@/lib/gemini-live";
 import { AudioStreamer, AudioPlayer } from "@/lib/audio";
 import { generateBrief, type BriefContent } from "@/lib/gemini";
-import { buildSessionSystemPrompt, BRIEF_GENERATOR_PROMPT } from "@/lib/session-prompts";
-import { saveSession, saveBrief } from "@/lib/firestore-sessions";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -58,9 +56,12 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
   // Mirror of transcript state for synchronous reads in endSession
   const transcriptRef = useRef<TranscriptTurn[]>([]);
 
-  // Partial transcription accumulators
+  // Latest partial transcription (replacement, not delta)
   const pendingInputRef = useRef("");
   const pendingOutputRef = useRef("");
+
+  // Track whether the agent has spoken — drives "connecting" → "active"
+  const agentHasSpokenRef = useRef(false);
 
   // ── Timer ───────────────────────────────────────────────────────────────
 
@@ -96,6 +97,9 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
   const pushTurn = useCallback(
     (speaker: "agent" | "patient", text: string) => {
       if (!text.trim()) return;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useVoiceSession.ts:pushTurn',message:'pushTurn called',data:{speaker,textPreview:text.trim().substring(0,120),existingTurnCount:transcriptRef.current.length},timestamp:Date.now(),hypothesisId:'A,B,C'})}).catch(()=>{});
+      // #endregion
       const turn: TranscriptTurn = { speaker, text: text.trim(), timestamp: Date.now() };
       transcriptRef.current = [...transcriptRef.current, turn];
       setTranscript(transcriptRef.current);
@@ -115,36 +119,29 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
     setBrief(null);
     pendingInputRef.current = "";
     pendingOutputRef.current = "";
+    agentHasSpokenRef.current = false;
 
     try {
       const player = new AudioPlayer();
       await player.init();
       playerRef.current = player;
 
-      const systemInstruction = buildSessionSystemPrompt({
-        patientName: params.patientName,
-      });
-
       const client = new GeminiLiveClient(
         {
-          systemInstruction,
+          systemInstruction: "",
           enableAffectiveDialog: true,
           voiceName: "Puck",
           temperature: 0.9,
         },
         {
           onSetupComplete: async () => {
-            setStatus("active");
-            startTimer();
-
-            // Nudge the model to begin its greeting immediately
+            // Stay in "connecting" — transition to "active" on first audio
             clientRef.current?.sendText("(Session started. Please begin with your warm greeting.)");
 
-            // Start mic streaming
             try {
               const streamer = new AudioStreamer();
-              streamer.onAudioChunk = (b64) => {
-                clientRef.current?.sendAudio(b64);
+              streamer.onAudioBytes = (pcmBuffer: ArrayBuffer) => {
+                clientRef.current?.sendAudioBytes(pcmBuffer);
               };
               await streamer.start();
               streamerRef.current = streamer;
@@ -158,28 +155,36 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
           },
 
           onAudio: (base64Pcm) => {
+            if (!agentHasSpokenRef.current) {
+              agentHasSpokenRef.current = true;
+              setStatus("active");
+              startTimer();
+            }
             playerRef.current?.play(base64Pcm);
           },
 
           onInputTranscript: (data: TranscriptionData) => {
-            pendingInputRef.current += data.text;
+            // ADK sends replacement text (full text so far), not deltas
+            pendingInputRef.current = data.text;
             if (data.finished) {
-              pushTurn("patient", pendingInputRef.current);
+              pushTurn("patient", data.text);
               pendingInputRef.current = "";
             }
           },
 
           onOutputTranscript: (data: TranscriptionData) => {
-            pendingOutputRef.current += data.text;
+            pendingOutputRef.current = data.text;
             if (data.finished) {
-              pushTurn("agent", pendingOutputRef.current);
+              pushTurn("agent", data.text);
               pendingOutputRef.current = "";
             }
           },
 
           onInterrupted: () => {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useVoiceSession.ts:onInterrupted',message:'interrupted handler',data:{hasPendingOutput:!!pendingOutputRef.current.trim(),pendingPreview:pendingOutputRef.current.trim().substring(0,100)},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             playerRef.current?.interrupt();
-            // Flush any partial output transcription
             if (pendingOutputRef.current.trim()) {
               pushTurn("agent", pendingOutputRef.current);
               pendingOutputRef.current = "";
@@ -187,11 +192,7 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
           },
 
           onTurnComplete: () => {
-            // Flush any remaining partial output
-            if (pendingOutputRef.current.trim()) {
-              pushTurn("agent", pendingOutputRef.current);
-              pendingOutputRef.current = "";
-            }
+            // No-op for text — onOutputTranscript is the sole authority.
           },
 
           onError: (error) => {
@@ -206,6 +207,10 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
               stopTimer();
             }
           },
+        },
+        {
+          patientName: params.patientName,
+          userId: params.patientId,
         }
       );
 
@@ -273,22 +278,14 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
 
     setIsGeneratingBrief(true);
     try {
-      const result = await generateBrief(transcriptText, BRIEF_GENERATOR_PROMPT);
+      const result = await generateBrief(
+        transcriptText,
+        undefined,
+        params.patientId,
+        undefined,
+        duration
+      );
       setBrief(result);
-
-      // Persist to Firestore (best-effort, don't block UX)
-      if (params.patientId) {
-        try {
-          const sessionId = await saveSession(
-            params.patientId,
-            transcriptSnapshot,
-            duration
-          );
-          await saveBrief(sessionId, params.patientId, result);
-        } catch (saveErr) {
-          console.error("Firestore save failed (non-blocking):", saveErr);
-        }
-      }
 
       return result;
     } catch (err) {

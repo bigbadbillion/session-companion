@@ -18,13 +18,23 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-function base64ToPcm16Float32(base64: string): Float32Array {
-  const raw = atob(base64);
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  // ADK's model_dump_json() may emit base64url encoding (RFC 4648 §5).
+  // Convert to standard base64 so atob() can handle it.
+  let std = base64.replace(/-/g, "+").replace(/_/g, "/");
+  while (std.length % 4) std += "=";
+
+  const raw = atob(std);
   const bytes = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) {
     bytes[i] = raw.charCodeAt(i);
   }
-  const int16 = new Int16Array(bytes.buffer);
+  return bytes.buffer;
+}
+
+function base64ToPcm16Float32(base64: string): Float32Array {
+  const buf = base64ToArrayBuffer(base64);
+  const int16 = new Int16Array(buf);
   const float32 = new Float32Array(int16.length);
   for (let i = 0; i < int16.length; i++) {
     float32[i] = int16[i] / 32768;
@@ -42,7 +52,11 @@ export class AudioStreamer {
   private _streaming = false;
   private _muted = false;
 
+  /** Legacy callback: base64-encoded PCM16 chunks */
   onAudioChunk: ((base64Pcm: string) => void) | null = null;
+
+  /** ADK protocol callback: raw PCM16 ArrayBuffer for binary WebSocket frames */
+  onAudioBytes: ((pcmBuffer: ArrayBuffer) => void) | null = null;
 
   get streaming(): boolean {
     return this._streaming;
@@ -72,8 +86,12 @@ export class AudioStreamer {
       if (!this._streaming || this._muted) return;
       if (event.data?.type === "audio") {
         const pcm = float32ToPcm16(event.data.data as Float32Array);
-        const b64 = arrayBufferToBase64(pcm);
-        this.onAudioChunk?.(b64);
+        // Prefer binary callback (ADK protocol) over base64 (legacy)
+        if (this.onAudioBytes) {
+          this.onAudioBytes(pcm);
+        } else if (this.onAudioChunk) {
+          this.onAudioChunk(arrayBufferToBase64(pcm));
+        }
       }
     };
 

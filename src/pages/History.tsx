@@ -7,6 +7,7 @@ import AppLayout from "@/components/AppLayout";
 import { emotionEmojis } from "@/data/mockData";
 import { format } from "date-fns";
 import { usePatientData } from "@/hooks/usePatientData";
+import { toDate } from "@/lib/firestore-sessions";
 
 const History = () => {
   const { briefs, sessions, loading } = usePatientData();
@@ -58,8 +59,7 @@ const History = () => {
         ) : (
           <div className="space-y-3">
             {briefs.map((brief, i) => {
-              const session = sessions.find((s) => s.sessionId === brief.sessionId);
-              const dominantEmotion = session?.emotionalArc.dominantEmotion ?? "calm";
+              const dominantEmotion = brief.content.dominantEmotion ?? "calm";
               const emoji = emotionEmojis[dominantEmotion] || "😌";
 
               return (
@@ -83,7 +83,7 @@ const History = () => {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between mb-1">
                               <p className="text-sm font-medium text-foreground">
-                                {format(brief.generatedAt.toDate(), "EEEE, MMMM d")}
+                                {format(toDate(brief.generatedAt), "EEEE, MMMM d")}
                               </p>
                               <Badge variant="secondary" className="text-xs capitalize font-normal">
                                 {dominantEmotion}

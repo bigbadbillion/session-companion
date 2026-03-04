@@ -10,6 +10,7 @@ import { emotionEmojis } from "@/data/mockData";
 import { format } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePatientData } from "@/hooks/usePatientData";
+import { toDate } from "@/lib/firestore-sessions";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -145,12 +146,25 @@ const Dashboard = () => {
             <Link to={`/brief/${latestBrief.briefId}`}>
               <Card className="shadow-soft hover:shadow-lifted hover:-translate-y-0.5 transition-all duration-500 cursor-pointer group rounded-2xl border-border/50">
                 <CardContent className="p-6">
-                  <p className="text-xs text-muted-foreground mb-3">
-                    {format(latestBrief.generatedAt.toDate(), "EEEE, MMMM d")} · Session #{sessionCount}
-                  </p>
-                  <p className="text-sm text-foreground/80 leading-relaxed mb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs text-muted-foreground">
+                      {format(toDate(latestBrief.generatedAt), "EEEE, MMMM d")} · Session #{sessionCount}
+                    </p>
+                    {latestBrief.content.dominantEmotion && (
+                      <Badge variant="outline" className="capitalize font-normal text-xs text-muted-foreground border-border">
+                        {emotionEmojis[latestBrief.content.dominantEmotion] || "😌"}{" "}
+                        {latestBrief.content.dominantEmotion}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-foreground/80 leading-relaxed mb-2">
                     {latestBrief.content.emotionalState}
                   </p>
+                  {latestBrief.content.patternNote && (
+                    <p className="text-xs text-primary font-medium mb-2">
+                      Pattern noted · worth exploring this week
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     {latestBrief.content.themes.map((theme) => (
                       <Badge key={theme} variant="secondary" className="bg-sage-light text-primary border-0 font-normal">
@@ -213,13 +227,13 @@ const Dashboard = () => {
                       <span className="text-xs text-muted-foreground">Trend</span>
                     </div>
                     <p className="font-display text-2xl font-bold text-foreground">
-                      {latestSession
-                        ? (emotionEmojis[latestSession.emotionalArc.dominantEmotion] || "😌")
+                      {latestBrief
+                        ? (emotionEmojis[latestBrief.content.dominantEmotion] || "😌")
                         : "—"}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1 capitalize">
-                      {latestSession
-                        ? `${latestSession.emotionalArc.dominantEmotion} this week`
+                      {latestBrief
+                        ? `${latestBrief.content.dominantEmotion} this week`
                         : "No data yet"}
                     </p>
                   </CardContent>

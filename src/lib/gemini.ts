@@ -1,12 +1,18 @@
 /**
- * Gemini proxy client.
+ * Prelude API client.
  *
- * All Gemini API calls go through our Express server at /api/* and /ws/*
+ * All API calls go through the Python FastAPI + ADK backend at /api/* and /ws/*
  * so the API key never reaches the browser.
  */
 
+export type DominantEmotion =
+  | "anxious" | "sad" | "frustrated" | "calm" | "hopeful"
+  | "reflective" | "grounded" | "happy" | "grateful"
+  | "confident" | "distressed" | "flat" | "excited";
+
 export interface BriefContent {
   emotionalState: string;
+  dominantEmotion: DominantEmotion;
   themes: string[];
   patientWords: string;
   focusItems: string[];
@@ -15,12 +21,21 @@ export interface BriefContent {
 
 export async function generateBrief(
   transcript: string,
-  systemPrompt?: string
+  _systemPrompt?: string,
+  patientId?: string,
+  sessionId?: string,
+  durationSeconds?: number
 ): Promise<BriefContent> {
   const res = await fetch("/api/generate-brief", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ transcript, systemPrompt }),
+    body: JSON.stringify({
+      transcript,
+      patientId: patientId || "anonymous",
+      sessionId: sessionId || undefined,
+      patientName: "the patient",
+      durationSeconds: durationSeconds || 0,
+    }),
   });
 
   if (!res.ok) {
@@ -31,10 +46,23 @@ export async function generateBrief(
   return res.json();
 }
 
-export function createSessionWebSocket(): WebSocket {
+/**
+ * Creates a WebSocket connection to the ADK-backed voice session endpoint.
+ * Optional query params personalize the agent for the patient.
+ */
+export function createSessionWebSocket(opts?: {
+  patientName?: string;
+  userId?: string;
+  sessionId?: string;
+}): WebSocket {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${protocol}//${window.location.host}/ws/session`);
-  return ws;
+  const params = new URLSearchParams();
+  if (opts?.patientName) params.set("patientName", opts.patientName);
+  if (opts?.userId) params.set("userId", opts.userId);
+  if (opts?.sessionId) params.set("sessionId", opts.sessionId);
+  const qs = params.toString();
+  const url = `${protocol}//${window.location.host}/ws/session${qs ? `?${qs}` : ""}`;
+  return new WebSocket(url);
 }
 
 export async function checkServerHealth(): Promise<boolean> {
