@@ -19,6 +19,8 @@ export interface BriefContent {
   patternNote: string | null;
 }
 
+import { auth } from "@/lib/firebase";
+
 export async function generateBrief(
   transcript: string,
   _systemPrompt?: string,
@@ -26,9 +28,15 @@ export async function generateBrief(
   sessionId?: string,
   durationSeconds?: number
 ): Promise<BriefContent> {
+  const currentUser = auth.currentUser;
+  const token = currentUser ? await currentUser.getIdToken() : null;
+
   const res = await fetch("/api/generate-brief", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({
       transcript,
       patientId: patientId || "anonymous",
@@ -54,12 +62,14 @@ export function createSessionWebSocket(opts?: {
   patientName?: string;
   userId?: string;
   sessionId?: string;
+  token?: string | null;
 }): WebSocket {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const params = new URLSearchParams();
   if (opts?.patientName) params.set("patientName", opts.patientName);
   if (opts?.userId) params.set("userId", opts.userId);
   if (opts?.sessionId) params.set("sessionId", opts.sessionId);
+  if (opts?.token) params.set("token", opts.token);
   const qs = params.toString();
   const url = `${protocol}//${window.location.host}/ws/session${qs ? `?${qs}` : ""}`;
   return new WebSocket(url);

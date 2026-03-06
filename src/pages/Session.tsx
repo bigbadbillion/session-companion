@@ -267,9 +267,9 @@ const Session = () => {
                   <motion.div
                     key={`${turn.timestamp}-${i}`}
                     className={`flex ${turn.speaker === "patient" ? "justify-end" : "justify-start"}`}
-                    initial={{ opacity: 0, y: 16, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
                   >
                     <Card
                       className={`max-w-[80%] border-0 shadow-soft ${

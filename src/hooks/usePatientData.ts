@@ -15,35 +15,6 @@ interface PatientData {
   refresh: () => void;
 }
 
-async function fetchBriefsWithFallback(userId: string): Promise<BriefDoc[]> {
-  // Try backend API first (FastAPI + ADK), then fall back to direct Firestore reads.
-  try {
-    const res = await fetch(`/api/briefs/${encodeURIComponent(userId)}`);
-    if (res.ok) {
-      const data = (await res.json()) as BriefDoc[];
-      return data;
-    }
-  } catch (err) {
-    console.warn("Backend briefs API failed, falling back to Firestore:", err);
-  }
-
-  return getPatientBriefs(userId);
-}
-
-async function fetchSessionsWithFallback(userId: string): Promise<SessionDoc[]> {
-  try {
-    const res = await fetch(`/api/sessions/${encodeURIComponent(userId)}`);
-    if (res.ok) {
-      const data = (await res.json()) as SessionDoc[];
-      return data;
-    }
-  } catch (err) {
-    console.warn("Backend sessions API failed, falling back to Firestore:", err);
-  }
-
-  return getPatientSessions(userId);
-}
-
 export function usePatientData(): PatientData {
   const { user } = useAuth();
   const [briefs, setBriefs] = useState<BriefDoc[]>([]);
@@ -63,8 +34,8 @@ export function usePatientData(): PatientData {
     setError(null);
 
     Promise.all([
-      fetchBriefsWithFallback(user.uid),
-      fetchSessionsWithFallback(user.uid),
+      getPatientBriefs(user.uid),
+      getPatientSessions(user.uid),
     ])
       .then(([b, s]) => {
         if (cancelled) return;

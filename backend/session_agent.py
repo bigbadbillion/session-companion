@@ -16,6 +16,8 @@ from backend.tools.session_tools import (
     advance_phase,
     log_topic,
     get_highest_weight_topic,
+    get_memory_cues,
+    suggest_follow_ups,
     save_patient_words,
     flag_distress,
     get_session_summary,
@@ -25,11 +27,19 @@ from backend.tools.session_tools import (
 LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
 
 
-def create_session_agent(patient_name: str = "there") -> Agent:
+def create_session_agent(
+    patient_name: str = "there",
+    user_id: str | None = None,
+    session_id: str | None = None,
+) -> Agent:
     """Creates a SessionAgent configured for a specific patient.
 
     Args:
         patient_name: The patient's first name for personalized greetings.
+        user_id: Optional. Passed into instruction so the agent can call
+            get_previous_session_context and get_memory_cues with patient_id.
+        session_id: Optional. Passed into instruction so the agent can call
+            session tools (e.g. suggest_follow_ups) with the correct session_id.
 
     Returns:
         An ADK Agent ready for voice session orchestration.
@@ -41,15 +51,20 @@ def create_session_agent(patient_name: str = "there") -> Agent:
             "Voice-first therapy prep companion. Conducts a ~10-minute "
             "conversation with the patient to help them surface what matters "
             "most before their therapy session. Uses tools for topic tracking, "
-            "emotional weight, phase management, and prior-session context."
+            "emotional weight, phase management, prior-session context, "
+            "memory cues, and follow-up suggestions."
         ),
-        instruction=build_session_instruction(patient_name),
+        instruction=build_session_instruction(
+            patient_name, user_id=user_id, session_id=session_id
+        ),
         tools=[
             get_previous_session_context,
             get_current_phase,
             advance_phase,
             log_topic,
             get_highest_weight_topic,
+            get_memory_cues,
+            suggest_follow_ups,
             save_patient_words,
             flag_distress,
             get_session_summary,

@@ -33,6 +33,13 @@ for _p in [_env_path, _root_env]:
         except Exception:
             pass
 
+# Optional: load from Google Secret Manager (e.g. when LOAD_SECRETS_FROM_MANAGER=1)
+try:
+    from backend.secrets import load_secrets_into_env
+    load_secrets_into_env()
+except Exception:
+    pass
+
 # Map GEMINI_API_KEY to GOOGLE_API_KEY for ADK
 if os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
     os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY", "")
@@ -40,7 +47,7 @@ if os.getenv("GEMINI_API_KEY") and not os.getenv("GOOGLE_API_KEY"):
 if not os.getenv("GOOGLE_GENAI_USE_VERTEXAI"):
     os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "FALSE"
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from google.adk.agents.live_request_queue import LiveRequestQueue
@@ -49,6 +56,19 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google import genai
 from google.genai import types
+
+try:
+    import firebase_admin
+    from firebase_admin import auth as firebase_auth
+    FIREBASE_ADMIN_AVAILABLE = True
+except ModuleNotFoundError:
+    firebase_admin = None  # type: ignore[assignment]
+    firebase_auth = None  # type: ignore[assignment]
+    FIREBASE_ADMIN_AVAILABLE = False
+
+# Only set after we attempt init (see below). Ensures we don't require auth if init fails.
+_firebase_auth_ready = False
+_firebase_auth_error: str | None = None
 
 from backend.session_agent import create_session_agent
 from backend.brief_agent import create_brief_agent
@@ -59,6 +79,113 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# When unset, we default to requiring auth (BACKEND_DEV_NO_AUTH = false).
+# You can explicitly disable auth in local dev by setting BACKEND_DEV_NO_AUTH=true.
+BACKEND_DEV_NO_AUTH = os.getenv("BACKEND_DEV_NO_AUTH", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+
+def _ensure_firebase_initialized() -> None:
+    """Initialize Firebase Admin once when auth is desired. Safe to call multiple times."""
+    global _firebase_auth_ready, _firebase_auth_error
+    if _firebase_auth_ready or not FIREBASE_ADMIN_AVAILABLE or BACKEND_DEV_NO_AUTH:
+        return
+    try:
+        try:
+            firebase_admin.get_app()
+        except ValueError:
+            firebase_admin.initialize_app()
+        _firebase_auth_ready = True
+        _firebase_auth_error = None
+        logger.info("Firebase Admin initialized for auth")
+    except Exception as e:
+        _firebase_auth_error = str(e)
+        logger.warning(
+            "Firebase Admin init failed (auth disabled): %s. Set GOOGLE_APPLICATION_CREDENTIALS or run with BACKEND_DEV_NO_AUTH=true.",
+            e,
+        )
+
+
+def auth_enabled() -> bool:
+    _ensure_firebase_initialized()
+    return FIREBASE_ADMIN_AVAILABLE and _firebase_auth_ready and not BACKEND_DEV_NO_AUTH
+
+
+def _decode_firebase_token(token: str) -> dict:
+    """Blocking decode; run via asyncio.to_thread to avoid blocking event loop."""
+    return firebase_auth.verify_id_token(token)  # type: ignore[arg-type]
+
+
+async def verify_firebase_token(request: Request) -> str | None:
+    """Verify Firebase ID token from Authorization header and return uid.
+
+    When BACKEND_DEV_NO_AUTH is truthy or firebase_admin is unavailable,
+    this acts as a no-op and returns None.
+    """
+    if not auth_enabled():
+        return None
+
+    auth_header = request.headers.get("authorization") or request.headers.get(
+        "Authorization"
+    )
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing Authorization Bearer token",
+        )
+
+    token = auth_header.split(" ", 1)[1].strip()
+    try:
+        decoded = await asyncio.to_thread(_decode_firebase_token, token)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to verify Firebase ID token: %s", e)
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+        ) from e
+
+    uid = decoded.get("uid")
+    if not uid:
+        raise HTTPException(
+            status_code=401,
+            detail="Token missing uid",
+        )
+    return uid
+
+
+async def verify_firebase_token_ws(token: str | None) -> str | None:
+    """Verify Firebase ID token for WebSocket flows.
+
+    Behaves like verify_firebase_token but takes a raw token instead of a Request.
+    Raises HTTPException on failure so the WebSocket handler can close with 4401.
+    """
+    if not auth_enabled():
+        return None
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing token")
+
+    try:
+        decoded = await asyncio.to_thread(_decode_firebase_token, token)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to verify Firebase ID token (WS): %s", e)
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+        ) from e
+
+    uid = decoded.get("uid")
+    if not uid:
+        raise HTTPException(
+            status_code=401,
+            detail="Token missing uid",
+        )
+    return uid
+
 
 # ── Application Setup ─────────────────────────────────────────────────────
 
@@ -112,11 +239,21 @@ async def health_check():
     except Exception as e:
         firestore_error = str(e)
 
+    enabled = auth_enabled()
+
     return {
         "status": "ok",
         "geminiConfigured": bool(api_key),
         "backend": "python-adk",
         "agentModel": session_agent.model,
+        "authEnabled": enabled,
+        "auth": {
+            "enabled": enabled,
+            "devNoAuth": BACKEND_DEV_NO_AUTH,
+            "firebaseAdminAvailable": FIREBASE_ADMIN_AVAILABLE,
+            "firebaseAuthReady": _firebase_auth_ready,
+            "error": _firebase_auth_error,
+        },
         "firestore": {
             "ok": firestore_ok,
             "error": firestore_error,
@@ -135,6 +272,14 @@ async def voice_session_ws(websocket: WebSocket):
     - Downstream: ADK events as JSON
     """
     await websocket.accept()
+    token = websocket.query_params.get("token")
+    try:
+        uid = await verify_firebase_token_ws(token)
+    except HTTPException as exc:
+        logger.warning("Closing WebSocket due to auth failure: %s", exc.detail)
+        await websocket.close(code=4401, reason="auth_failed")
+        return
+
     logger.info("Voice session WebSocket connected")
     reset_session_state()
 
@@ -143,16 +288,21 @@ async def voice_session_ws(websocket: WebSocket):
     user_id = websocket.query_params.get("userId", f"user-{uuid.uuid4().hex[:8]}")
     session_id = websocket.query_params.get("sessionId", f"session-{uuid.uuid4().hex[:8]}")
 
-    # Create a patient-specific agent if name was provided
-    if patient_name != "there":
-        patient_agent = create_session_agent(patient_name=patient_name)
-        patient_runner = Runner(
-            app_name=SESSION_APP,
-            agent=patient_agent,
-            session_service=session_service,
-        )
-    else:
-        patient_runner = session_runner
+    # When auth is enabled, trust the uid over any client-supplied userId.
+    if auth_enabled() and uid:
+        user_id = uid
+
+    # Create a session agent with user/session IDs so tools can be called correctly
+    patient_agent = create_session_agent(
+        patient_name=patient_name,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    patient_runner = Runner(
+        app_name=SESSION_APP,
+        agent=patient_agent,
+        session_service=session_service,
+    )
 
     # Ensure session exists
     session = await session_service.get_session(
@@ -180,11 +330,18 @@ async def voice_session_ws(websocket: WebSocket):
     )
 
     live_request_queue = LiveRequestQueue()
+    downstream_task_ref: asyncio.Task | None = None
 
     async def upstream_task() -> None:
         """Receives messages from browser WebSocket and sends to ADK."""
+        nonlocal downstream_task_ref
         while True:
             message = await websocket.receive()
+
+            if message.get("type") == "websocket.disconnect":
+                if downstream_task_ref is not None:
+                    downstream_task_ref.cancel()
+                break
 
             if "bytes" in message:
                 audio_data = message["bytes"]
@@ -231,7 +388,10 @@ async def voice_session_ws(websocket: WebSocket):
             await websocket.send_text(event_json)
 
     try:
-        await asyncio.gather(upstream_task(), downstream_task())
+        downstream_task_ref = asyncio.create_task(downstream_task())
+        await asyncio.gather(upstream_task(), downstream_task_ref)
+    except asyncio.CancelledError:
+        logger.info("Voice session ended (client disconnected or task cancelled)")
     except WebSocketDisconnect:
         logger.info("Voice session client disconnected")
     except Exception as e:
@@ -240,6 +400,8 @@ async def voice_session_ws(websocket: WebSocket):
             error_msg = str(e)
             if "not found" in error_msg or "not supported" in error_msg:
                 error_msg = "Voice model unavailable. Please try again later."
+            elif "1008" in error_msg or "policy violation" in error_msg.lower() or "not implemented, or supported, or enabled" in error_msg.lower():
+                error_msg = "The voice session ended due to a service limit. You can start a new session."
             await websocket.send_json({"error": error_msg})
         except Exception:
             pass
@@ -259,7 +421,7 @@ class BriefRequest(BaseModel):
 
 
 @app.get("/api/sessions/{patient_id}")
-async def list_sessions(patient_id: str):
+async def list_sessions(patient_id: str, uid: str | None = Depends(verify_firebase_token)):
     """Returns all prep sessions for a patient, newest first.
 
     Shape is aligned with the frontend's SessionDoc type in
@@ -269,6 +431,9 @@ async def list_sessions(patient_id: str):
     from backend.db.firestore_client import query_documents
     from backend.tools.firestore_tools import _to_sorted_timestamp
 
+    if auth_enabled() and uid is not None and uid != patient_id:
+        raise HTTPException(status_code=403, detail="Forbidden for this patient")
+
     sessions = await query_documents("sessions", "patientId", "==", patient_id)
     sessions.sort(
         key=lambda s: _to_sorted_timestamp(s.get("completedAt")), reverse=True
@@ -277,13 +442,16 @@ async def list_sessions(patient_id: str):
 
 
 @app.get("/api/briefs/{patient_id}")
-async def list_briefs(patient_id: str):
+async def list_briefs(patient_id: str, uid: str | None = Depends(verify_firebase_token)):
     """Returns all briefs for a patient, newest first.
 
     Shape matches the BriefDoc type used in the React frontend.
     """
     from backend.db.firestore_client import query_documents
     from backend.tools.firestore_tools import _to_sorted_timestamp
+
+    if auth_enabled() and uid is not None and uid != patient_id:
+        raise HTTPException(status_code=403, detail="Forbidden for this patient")
 
     briefs = await query_documents("briefs", "patientId", "==", patient_id)
     briefs.sort(
@@ -293,7 +461,7 @@ async def list_briefs(patient_id: str):
 
 
 @app.post("/api/generate-brief")
-async def generate_brief(req: BriefRequest):
+async def generate_brief(req: BriefRequest, uid: str | None = Depends(verify_firebase_token)):
     """Triggers the BriefGeneratorAgent to produce a structured brief.
 
     Pipeline:
@@ -309,6 +477,8 @@ async def generate_brief(req: BriefRequest):
     )
 
     user_id = req.patientId
+    if auth_enabled() and uid is not None and uid != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden for this patient")
     brief_session_id = f"brief-{uuid.uuid4().hex[:8]}"
 
     # Step 1: Save session directly (transcript too large for LLM tool param)

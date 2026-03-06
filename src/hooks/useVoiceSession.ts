@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { GeminiLiveClient, type TranscriptionData } from "@/lib/gemini-live";
 import { AudioStreamer, AudioPlayer } from "@/lib/audio";
 import { generateBrief, type BriefContent } from "@/lib/gemini";
+import { useAuth } from "@/contexts/AuthContext";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,8 @@ export interface TranscriptTurn {
 export interface UseVoiceSessionReturn {
   status: SessionStatus;
   transcript: TranscriptTurn[];
+  pendingAgentText: string;
+  pendingPatientText: string;
   elapsed: number;
   isMicMuted: boolean;
   errorMessage: string | null;
@@ -39,6 +42,7 @@ interface SessionParams {
 // ── Hook ────────────────────────────────────────────────────────────────────
 
 export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
+  const { user } = useAuth();
   const [status, setStatus] = useState<SessionStatus>("idle");
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [elapsed, setElapsed] = useState(0);
@@ -46,6 +50,8 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [brief, setBrief] = useState<BriefContent | null>(null);
   const [isGeneratingBrief, setIsGeneratingBrief] = useState(false);
+  const [pendingAgentText, setPendingAgentText] = useState("");
+  const [pendingPatientText, setPendingPatientText] = useState("");
 
   const clientRef = useRef<GeminiLiveClient | null>(null);
   const streamerRef = useRef<AudioStreamer | null>(null);
@@ -94,17 +100,23 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
 
   // ── Transcript helpers ──────────────────────────────────────────────────
 
+  /** Strip control-character placeholders (e.g. <ctrl46>) that sometimes appear in Live API transcription. */
+  const sanitizeTranscriptText = useCallback((raw: string): string => {
+    return raw
+      .replace(/<ctrl\d+>/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }, []);
+
   const pushTurn = useCallback(
     (speaker: "agent" | "patient", text: string) => {
-      if (!text.trim()) return;
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useVoiceSession.ts:pushTurn',message:'pushTurn called',data:{speaker,textPreview:text.trim().substring(0,120),existingTurnCount:transcriptRef.current.length},timestamp:Date.now(),hypothesisId:'A,B,C'})}).catch(()=>{});
-      // #endregion
-      const turn: TranscriptTurn = { speaker, text: text.trim(), timestamp: Date.now() };
+      const cleaned = sanitizeTranscriptText(text);
+      if (!cleaned) return;
+      const turn: TranscriptTurn = { speaker, text: cleaned, timestamp: Date.now() };
       transcriptRef.current = [...transcriptRef.current, turn];
       setTranscript(transcriptRef.current);
     },
-    []
+    [sanitizeTranscriptText]
   );
 
   // ── Start session ───────────────────────────────────────────────────────
@@ -120,11 +132,15 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
     pendingInputRef.current = "";
     pendingOutputRef.current = "";
     agentHasSpokenRef.current = false;
+    setPendingAgentText("");
+    setPendingPatientText("");
 
     try {
       const player = new AudioPlayer();
       await player.init();
       playerRef.current = player;
+
+      const token = await user?.getIdToken().catch(() => null);
 
       const client = new GeminiLiveClient(
         {
@@ -169,6 +185,7 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
             if (data.finished) {
               pushTurn("patient", data.text);
               pendingInputRef.current = "";
+              setPendingPatientText("");
             }
           },
 
@@ -177,17 +194,16 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
             if (data.finished) {
               pushTurn("agent", data.text);
               pendingOutputRef.current = "";
+              setPendingAgentText("");
             }
           },
 
           onInterrupted: () => {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useVoiceSession.ts:onInterrupted',message:'interrupted handler',data:{hasPendingOutput:!!pendingOutputRef.current.trim(),pendingPreview:pendingOutputRef.current.trim().substring(0,100)},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-            // #endregion
             playerRef.current?.interrupt();
             if (pendingOutputRef.current.trim()) {
               pushTurn("agent", pendingOutputRef.current);
               pendingOutputRef.current = "";
+              setPendingAgentText("");
             }
           },
 
@@ -211,6 +227,7 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
         {
           patientName: params.patientName,
           userId: params.patientId,
+          token,
         }
       );
 
@@ -223,7 +240,7 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
       );
       setStatus("error");
     }
-  }, [params, pushTurn, startTimer, stopTimer, status]);
+  }, [params, pushTurn, startTimer, stopTimer, status, user]);
 
   // ── Toggle mic ──────────────────────────────────────────────────────────
 
@@ -254,6 +271,8 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
       pushTurn("agent", pendingOutputRef.current);
       pendingOutputRef.current = "";
     }
+    setPendingAgentText("");
+    setPendingPatientText("");
 
     streamerRef.current?.stop();
     streamerRef.current = null;
@@ -300,6 +319,8 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
   return {
     status,
     transcript,
+    pendingAgentText,
+    pendingPatientText,
     elapsed,
     isMicMuted,
     errorMessage,

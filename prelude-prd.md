@@ -356,22 +356,26 @@ Ask the kinds of questions that help the patient clarify what matters most:
 1. Temporal anchor: "When did you first feel this way this week — was there a specific moment?"
 2. Familiarity check: "Is this a familiar feeling for you, or does it feel different from before?"
 3. Body/sensation (optional, if patient seems open): "Where do you feel this in your body, if anywhere?"
-4. Therapy bridge: "If your therapist could understand one thing about this before you even 
-   walked in — what would it be?"
 
-Do not ask all four in sequence. Weave them naturally into the conversation.
-The fourth question — what they wish their therapist understood — is the most important. 
-Always find a way to ask it before Phase 4.
+Therapy bridge is a reflective arc, not a single question. Help the patient build toward naming
+what they want to carry into therapy through reflection and reframes (e.g. "You've mentioned X and Y
+a few times — it sounds like Y might be what you most want them to hear. Does that fit?"). Only after
+they've narrowed the priority might you ask something like "If your therapist could understand one
+thing about this before you walked in, what would it be?" — never ask it cold. If they don't land on
+a single "one thing," the brief can still capture themes and focus items from the conversation.
 
-If the patient opens a second significant thread mid-Phase 3, note it but stay on the 
+Do not ask the questions in sequence. Weave them naturally. Prioritize depth and surfacing over
+rushing to Phase 4.
+
+If the patient opens a second significant thread mid-Phase 3, note it but stay on the
 primary thread. Flag the second thread for the brief's "themes" section.
 ```
 
 **Agent behavior:**
-- Maximum 4–5 exchanges in this phase
+- Maximum 4–5 exchanges in this phase (or longer if they're still uncovering)
 - If patient goes silent for >8 seconds: "Take your time."
 - If patient becomes distressed: slow down, validate, do NOT probe further. Pivot to Phase 4 gently.
-- Capture verbatim: the patient's answer to "what do you wish your therapist understood"
+- Capture verbatim: significant patient quotes; "what to carry in" may emerge from the arc, not one Q&A
 
 ---
 
@@ -490,7 +494,7 @@ Output format:
 |---|---|---|---|
 | 1.1 | Create Google Cloud project | ✅ DONE | Project ID: `prelude-488809` |
 | 1.2 | Enable required APIs: Vertex AI, Firestore, Cloud Run, Secret Manager, Firebase Auth, Gmail | ✅ DONE | APIs enabled via GCP Console |
-| 1.3 | Install Google Cloud CLI (`gcloud`) locally | ⬜ TODO | Not yet installed; not needed until Phase 7 (Cloud Run deploy) |
+| 1.3 | Install Google Cloud CLI (`gcloud`) locally | ✅ DONE | Installed via `brew install --cask google-cloud-sdk`; `gcloud auth login` and `gcloud config set project prelude-488809` completed. Ready for Phase 7 deploy. |
 | 1.4 | Install Firebase JS SDK + Google GenAI JS SDK (adapted from Python) | ✅ DONE | `npm install firebase @google/generative-ai` — using JS SDKs in React frontend instead of Python |
 | 1.5 | Install ADK: `pip install google-adk` | ✅ DONE | Installed google-adk 1.26.0 in `backend/.venv/` (Python 3.12). ADK agents in `backend/agent.py`, `backend/session_agent.py`, `backend/brief_agent.py`. |
 | 1.6 | Install Google GenAI SDK (Python) | ✅ DONE | Installed via google-adk dependency. Also kept Firebase JS SDK for client-side auth. |
@@ -599,11 +603,11 @@ prelude/
 | 4.2 | Add WebSocket endpoint for Live API session (`/ws/session`) | ✅ DONE | ADK `run_live()` with `LiveRequestQueue`. Browser sends binary PCM audio + JSON text. ADK handles Gemini Live API internally with tool execution. |
 | 4.3 | Add REST endpoint for brief generation (`POST /api/generate-brief`) | ✅ DONE | Triggers ADK BriefGeneratorAgent via `runner.run_async()`. Agent uses tools for pattern detection, Firestore storage. |
 | 4.4 | Add REST endpoint for session history (`GET /sessions/{patientId}`) | ✅ DONE | `backend/api/main.py` — `GET /api/sessions/{patient_id}` and `GET /api/briefs/{patient_id}` return session/brief history sorted by completion time. |
-| 4.5 | Add REST endpoint to save brief to dashboard (`POST /briefs/{briefId}/save`) | ⬜ TODO | |
+| 4.5 | Add REST endpoint to save brief to dashboard (`POST /briefs/{briefId}/save`) | ⏭️ SKIPPED | Not needed. |
 | 4.6 | Set up Firebase Auth for Google OAuth (patient sign-in) | ✅ DONE | Implemented client-side with Firebase JS SDK. Google OAuth popup flow. Auth context wraps entire app. Protected routes redirect to landing. |
-| 4.7 | Add auth middleware to FastAPI (verify Firebase JWT token) | ⬜ TODO | |
-| 4.9 | Store API keys in Google Secret Manager and load in server | ⬜ TODO | Currently in `.env` (never committed). Will move to Secret Manager for Cloud Run. |
-| 4.10 | Add health check endpoint (`GET /api/health`) | ✅ DONE | `backend/api/main.py` — returns `{ status: "ok", geminiConfigured: true, firestore: { ok, error } }`. |
+| 4.7 | Add auth middleware to FastAPI (verify Firebase JWT token) | ✅ DONE | **Hardened in `backend/api/main.py`:** (1) Safe Firebase Admin init: `_ensure_firebase_initialized()` runs when auth desired; if init fails (e.g. missing creds), auth stays disabled and server keeps working. (2) Auth default: `BACKEND_DEV_NO_AUTH` defaults to `false` so auth is on unless set to `true`. (3) Token verification runs in `asyncio.to_thread()` so it doesn't block the event loop (REST and WebSocket). (4) Protected endpoints: `POST /api/generate-brief`, `GET /api/sessions/{patient_id}`, `GET /api/briefs/{patient_id}`, WebSocket `/ws/session` (token via query). (5) When auth enabled, backend trusts token `uid` over client-supplied `patientId`/`userId`. (6) Health check exposes `authEnabled` and `auth` (devNoAuth, firebaseAdminAvailable, firebaseAuthReady, error) for debugging. Frontend already sends Bearer token (REST) and `token` query param (WS) via `src/lib/gemini.ts` and `useVoiceSession`. Requires `firebase-admin` in backend venv and `GOOGLE_APPLICATION_CREDENTIALS` (or GCP default creds) when auth is on. |
+| 4.9 | Store API keys in Google Secret Manager and load in server | ✅ DONE | Section 11 documents Secret Manager access (Cloud Console: Security → Secret Manager; gcloud `secrets create`). Required production secret: `gemini-api-key` (injected as `GOOGLE_API_KEY` via Cloud Run `--set-secrets` in `cloudbuild.yaml`). Optional: `backend/secrets.py` loads secrets into env when `LOAD_SECRETS_FROM_MANAGER=1`; local dev continues to use `.env`. |
+| 4.10 | Add health check endpoint (`GET /api/health`) | ✅ DONE | `backend/api/main.py` — returns `{ status, geminiConfigured, backend, agentModel, authEnabled, auth: { enabled, devNoAuth, firebaseAdminAvailable, firebaseAuthReady, error }, firestore: { ok, error } }`. |
 
 **Files changed in Phase 4.1-4.3 (Gemini proxy server):**
 - `server/index.ts` — NEW: Express + WS server. Gemini API key stays server-side. Two endpoints: `/ws/session` (Live API WebSocket proxy), `POST /api/generate-brief` (Flash API), `GET /api/health`.
@@ -621,6 +625,10 @@ prelude/
 - `src/components/AppNav.tsx` — UPDATED: Desktop sidebar shows user avatar + name + email; "Sign Out" calls `signOut()` and navigates to landing
 - `src/components/ProtectedRoute.tsx` — NEW: Route guard component (loading spinner → redirect if unauthenticated)
 
+**Files changed in Phase 4.7 (Auth middleware):**
+- `backend/api/main.py` — UPDATED: Lazy Firebase Admin init (`_ensure_firebase_initialized`, `_firebase_auth_ready`, `_firebase_auth_error`); `BACKEND_DEV_NO_AUTH` default `false`; `verify_firebase_token` / `verify_firebase_token_ws` use `asyncio.to_thread(_decode_firebase_token)`; WebSocket awaits async verifier; health response includes `authEnabled` and `auth` diagnostics. Frontend (`src/lib/gemini.ts`, `src/hooks/useVoiceSession.ts`) already sends ID token on REST and WS.
+- `backend/requirements.txt` — already includes `firebase-admin==6.6.0` (ensure backend venv has it installed for auth to enable).
+
 ---
 
 ### Phase 5 — Patient Web App
@@ -634,7 +642,7 @@ prelude/
 | 5.3 | Build voice session screen: mic visualizer, live transcript display | ✅ DONE | Full voice session UI with real-time transcript via Gemini Live API |
 | 5.4 | Connect browser to WebSocket session endpoint | ✅ DONE | `useVoiceSession` hook → GeminiLiveClient → ADK WebSocket |
 | 5.5 | Build brief review screen: display generated brief, edit fields | ✅ DONE | BriefView page renders full brief from Firestore + sessionStorage for latest |
-| 5.6 | Add "Save to Dashboard" button on brief review screen | ⬜ TODO | |
+| 5.6 | Add "Save to Dashboard" button on brief review screen | ⏭️ SKIPPED | Not needed. |
 | 5.7 | Build session history screen: list of past briefs | ✅ DONE | History page lists sessions with emotion badges from Firestore |
 | 5.8 | Basic responsive design (works on mobile browser) | ✅ DONE | Mobile-first nav, responsive layouts on all pages |
 | 5.9 | End-to-end patient flow test | ⬜ TODO | To be run against Cloud Run deployment with real sessions before submission. |
@@ -651,7 +659,7 @@ prelude/
 | 6.2 | Improve Trends page with richer emotional arc visualizations | ✅ DONE | `src/pages/Trends.tsx` — Emotional intensity chart + session-by-session list + recurring emotion callout provide an at-a-glance emotional arc over time. |
 | 6.3 | Add brief export (copy to clipboard / download as PDF) | ✅ DONE | `src/pages/BriefView.tsx` — Export PDF button generates a structured PDF via `jsPDF` (emotional state, themes, patient words, focus items, pattern note). |
 | 6.4 | Add brief editing before save (patient can tweak wording) | ✅ DONE | `src/pages/BriefView.tsx`, `src/lib/firestore-sessions.ts` — Editable fields for emotional state, themes, patient words, focus items, and pattern note with "Save Changes" persisting updates to Firestore for existing briefs. |
-| 6.5 | End-to-end patient flow test | ⬜ TODO | |
+| 6.5 | End-to-end patient flow test | ✅ DONE | |
 
 ---
 
@@ -663,9 +671,9 @@ prelude/
 |---|---|---|---|
 | 7.1 | Write `Dockerfile` for FastAPI + ADK backend | ✅ DONE | `backend/Dockerfile` — Python 3.12-slim, installs from requirements.txt, uses Cloud Run PORT env var |
 | 7.2 | Write `requirements.txt` with all dependencies pinned | ✅ DONE | `backend/requirements.txt` — google-adk 1.26.0, fastapi, uvicorn, google-cloud-firestore, etc. |
-| 7.3 | Build Docker image locally and test it | ⬜ TODO | |
-| 7.4 | Push image to Google Artifact Registry | ⬜ TODO | |
-| 7.5 | Deploy to Cloud Run: `gcloud run deploy prelude-backend` | ⬜ TODO | |
+| 7.3 | Build Docker image locally and test it | ✅ DONE | `docker build -t prelude-backend -f backend/Dockerfile backend/` succeeds; container runs and `GET /api/health` returns 200. Fixed google-cloud-secret-manager version (>=2.22.0) for ADK compatibility. |
+| 7.4 | Push image to Google Artifact Registry | ✅ DONE | Created repo `prelude-backend` in us-central1. Image: `us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest`. **After substantial code changes — rebuild and push:** (1) From project root: `docker build -t prelude-backend -f backend/Dockerfile backend/` (2) `docker tag prelude-backend us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest` (3) `docker push us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest`. Then redeploy (7.5) so Cloud Run uses the new image. |
+| 7.5 | Deploy to Cloud Run: `gcloud run deploy prelude-backend` | ⬜ TODO | **Image (from 7.4):** `us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest` — use `--image` with this URL when deploying. |
 | 7.6 | Configure Cloud Run environment variables from Secret Manager | ⬜ TODO | |
 | 7.7 | Test deployed backend with real session end-to-end | ⬜ TODO | |
 | 7.8 | Deploy frontend to Firebase Hosting | ⬜ TODO | |
@@ -755,6 +763,27 @@ The pattern data becomes defensible over time. A patient with 6 months of weekly
 ## 11. Environment Variables & Secrets
 
 Store in `.env` locally. Store in **Google Secret Manager** in production.
+
+### Where to manage secrets (Google Secret Manager)
+
+- **Cloud Console:** Open [Google Cloud Console](https://console.cloud.google.com/) → select your project (e.g. `prelude-488809`) → in the left **Navigation menu** go to **Security** → **Secret Manager**. Create and view secrets there.
+- **gcloud CLI:** After `gcloud auth login` and `gcloud config set project PRELUDE-488809`, create a secret:
+  ```bash
+  echo -n "YOUR_GEMINI_API_KEY_VALUE" | gcloud secrets create gemini-api-key --data-file=-
+  ```
+  Or create from the Console: **Secret Manager** → **Create Secret** → name `gemini-api-key`, value = your Gemini API key.
+
+### Secrets to add for production (Cloud Run)
+
+| Secret name (in Secret Manager) | Purpose | Used by |
+|---------------------------------|--------|--------|
+| `gemini-api-key` | Gemini/Google AI API key | Backend (injected as `GOOGLE_API_KEY` on Cloud Run via `cloudbuild.yaml` --set-secrets) |
+
+Optional: you can add more secrets (e.g. `backend-dev-no-auth` with value `false`) and reference them in Cloud Run or in backend config; the minimum required for the app to run on Cloud Run is `gemini-api-key`.
+
+**Local dev:** Keep using `.env` with `GEMINI_API_KEY` (and optionally `GOOGLE_APPLICATION_CREDENTIALS` for Firebase Admin). The backend loads `.env` first and only pulls from Secret Manager when explicitly enabled or when deploying to Cloud Run (where secrets are injected as env vars by the platform).
+
+### Full env reference (local .env)
 
 ```bash
 # Google Cloud

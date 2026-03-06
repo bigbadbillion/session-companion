@@ -83,9 +83,13 @@ export interface GeminiLiveConnectionOpts {
   patientName?: string;
   userId?: string;
   sessionId?: string;
+  token?: string | null;
 }
 
 // ── Client class (ADK protocol) ─────────────────────────────────────────
+
+/** Max time to wait for WebSocket to open before treating as timeout (ms). */
+const HANDSHAKE_TIMEOUT_MS = 25_000;
 
 export class GeminiLiveClient {
   private ws: WebSocket | null = null;
@@ -94,6 +98,7 @@ export class GeminiLiveClient {
   private connOpts: GeminiLiveConnectionOpts;
   private _connected = false;
   private setupNotified = false;
+  private handshakeTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     config: GeminiLiveConfig,
@@ -109,10 +114,30 @@ export class GeminiLiveClient {
     return this._connected;
   }
 
+  private clearHandshakeTimeout(): void {
+    if (this.handshakeTimeoutId != null) {
+      clearTimeout(this.handshakeTimeoutId);
+      this.handshakeTimeoutId = null;
+    }
+  }
+
   connect(): void {
     this.ws = createSessionWebSocket(this.connOpts);
 
+    this.handshakeTimeoutId = setTimeout(() => {
+      this.handshakeTimeoutId = null;
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        this.ws?.close();
+        this.ws = null;
+        this._connected = false;
+        this.callbacks.onError?.(
+          "Connection timed out. Make sure the backend is running (e.g. port 8000) and try again."
+        );
+      }
+    }, HANDSHAKE_TIMEOUT_MS);
+
     this.ws.onopen = () => {
+      this.clearHandshakeTimeout();
       this._connected = true;
       // ADK handles setup internally — notify the app that we're ready
       // once the WebSocket is open. The first downstream event confirms
@@ -148,25 +173,38 @@ export class GeminiLiveClient {
     };
 
     this.ws.onerror = () => {
+      this.clearHandshakeTimeout();
       this._connected = false;
       this.callbacks.onError?.("WebSocket connection error");
     };
 
     this.ws.onclose = (ev) => {
+      this.clearHandshakeTimeout();
       const wasConnected = this._connected;
       this._connected = false;
-      if (wasConnected && ev.code !== 1000) {
+      if (ev.code === 4401) {
+        this.callbacks.onError?.("Please sign in again.");
+      } else if (ev.code === 1000) {
+        // Normal closure (e.g. user ended session). Don't treat as error even if
+        // we already set _connected = false in disconnect().
+        this.callbacks.onClose?.();
+      } else if (wasConnected) {
         this.callbacks.onError?.("Connection to voice session lost unexpectedly.");
       } else {
-        this.callbacks.onClose?.();
+        this.callbacks.onError?.(
+          "Connection failed. Make sure the backend is running and try again."
+        );
       }
     };
   }
 
   disconnect(): void {
+    this.clearHandshakeTimeout();
     this._connected = false;
     if (this.ws) {
-      this.ws.close();
+      // Use 1000 (normal closure) so onclose calls onClose, not onError.
+      // Otherwise the UI shows "Connection lost" when the user intentionally ends the session.
+      this.ws.close(1000, "Session ended");
       this.ws = null;
     }
   }
@@ -204,27 +242,18 @@ export class GeminiLiveClient {
   private handleAdkEvent(event: AdkEvent): void {
     // Turn complete
     if (event.turnComplete) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'gemini-live.ts:handleAdkEvent',message:'turnComplete',data:{author:event.author},timestamp:Date.now(),hypothesisId:'B,C'})}).catch(()=>{});
-      // #endregion
       this.callbacks.onTurnComplete?.();
       return;
     }
 
     // Interrupted (barge-in)
     if (event.interrupted) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'gemini-live.ts:handleAdkEvent',message:'interrupted',data:{author:event.author},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       this.callbacks.onInterrupted?.();
       return;
     }
 
     // Input transcription (patient speech → text)
     if (event.inputTranscription?.text) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'gemini-live.ts:handleAdkEvent',message:'inputTranscription',data:{text:event.inputTranscription.text?.substring(0,100),finished:event.inputTranscription.finished},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       this.callbacks.onInputTranscript?.({
         text: event.inputTranscription.text,
         finished: event.inputTranscription.finished ?? false,
@@ -233,9 +262,6 @@ export class GeminiLiveClient {
 
     // Output transcription (agent speech → text)
     if (event.outputTranscription?.text) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'gemini-live.ts:handleAdkEvent',message:'outputTranscription',data:{text:event.outputTranscription.text?.substring(0,120),finished:event.outputTranscription.finished},timestamp:Date.now(),hypothesisId:'A,C'})}).catch(()=>{});
-      // #endregion
       this.callbacks.onOutputTranscript?.({
         text: event.outputTranscription.text,
         finished: event.outputTranscription.finished ?? false,
@@ -251,9 +277,6 @@ export class GeminiLiveClient {
       if (part.thought) continue;
 
       if (part.text) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'gemini-live.ts:handleAdkEvent',message:'textPart',data:{text:part.text?.substring(0,120),author:event.author},timestamp:Date.now(),hypothesisId:'A,E'})}).catch(()=>{});
-        // #endregion
         this.callbacks.onText?.(part.text);
       } else if (part.inlineData) {
         const mime = part.inlineData.mimeType || "";
@@ -261,11 +284,6 @@ export class GeminiLiveClient {
           this.callbacks.onAudio?.(part.inlineData.data);
         }
       }
-      // #region agent log
-      if (part.functionCall) {
-        fetch('http://127.0.0.1:7242/ingest/3f40d80b-f5c9-4044-bf55-722475fc32a5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'gemini-live.ts:handleAdkEvent',message:'functionCall',data:{call:JSON.stringify(part.functionCall).substring(0,200),author:event.author},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
-      }
-      // #endregion
     }
   }
 }

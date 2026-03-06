@@ -286,6 +286,92 @@ def cleanup_session(session_id: str) -> dict:
     return {"status": "success", "message": "Session data cleaned up."}
 
 
+# Static memory-jog cues to help patients recall significant moments they might have forgotten.
+# Used when the patient is vague or has only given a high-level summary.
+_MEMORY_CUES_STATIC = [
+    "Sometimes a small moment sticks — a look someone gave you, a 2AM thought, a wave of feeling on an ordinary afternoon. Anything like that this week?",
+    "What's one moment from the past few days that keeps coming back, even if it seems small?",
+    "When you think about the week, is there something that felt significant in the moment but you haven't put into words yet?",
+]
+
+
+async def get_memory_cues(patient_id: str | None = None) -> dict:
+    """Returns 1–3 short memory-jog prompts to help the patient recall significant moments.
+
+    Use when the patient is vague or has only given a high-level summary. The agent
+    should use one as inspiration and adapt to the conversation, not read verbatim.
+
+    If patient_id is provided and the patient has a previous session, one continuity
+    cue is included (e.g. "Last time you mentioned X. Did anything similar or different
+    come up this week?").
+
+    Args:
+        patient_id: Optional. The patient's user ID. When provided, a continuity cue
+            from their last session may be included.
+
+    Returns:
+        dict with status and a list of cue strings (memory_jog_cues, and optionally
+        continuity_cue when prior session exists).
+    """
+    cues = list(_MEMORY_CUES_STATIC)
+
+    continuity_cue = None
+    if patient_id:
+        try:
+            prev = await get_previous_session_context(patient_id)
+            if prev.get("has_previous") and prev.get("previous_themes"):
+                themes = prev["previous_themes"]
+                theme = themes[0] if themes else "what you brought up"
+                continuity_cue = (
+                    f"Last time you mentioned {theme}. "
+                    "Did anything similar or different come up this week?"
+                )
+        except Exception as e:
+            logger.debug("get_memory_cues: could not add continuity cue: %s", e)
+
+    result = {
+        "status": "success",
+        "memory_jog_cues": cues,
+    }
+    if continuity_cue:
+        result["continuity_cue"] = continuity_cue
+    return result
+
+
+async def suggest_follow_ups(
+    session_id: str,
+    last_patient_turn: str,
+) -> dict:
+    """Returns 2–4 content-specific follow-up suggestions based on what the patient just said.
+
+    Call this after the patient speaks, passing their last turn (or a short summary).
+    Uses the session's logged topics and minimization flags. The agent should use one
+    suggestion as inspiration and adapt to the conversation, not read verbatim.
+
+    Args:
+        session_id: The active session identifier (used to read logged topics).
+        last_patient_turn: What the patient just said, or a brief summary of it.
+
+    Returns:
+        dict with status and a list of suggestion strings (follow_ups).
+    """
+    from backend.tools.reflection_engine import suggest_follow_ups_async
+
+    state = _get_session(session_id)
+    topics = [t["topic"] for t in state["topics"]]
+    has_minimized = any(t.get("was_minimized") for t in state["topics"])
+
+    suggestions = await suggest_follow_ups_async(
+        last_patient_turn=last_patient_turn,
+        topics=topics if topics else None,
+        has_minimized=has_minimized,
+    )
+    return {
+        "status": "success",
+        "follow_ups": suggestions,
+    }
+
+
 async def get_previous_session_context(patient_id: str) -> dict:
     """Retrieves the patient's most recent brief for session continuity.
 
