@@ -332,6 +332,15 @@ async def voice_session_ws(websocket: WebSocket):
     live_request_queue = LiveRequestQueue()
     downstream_task_ref: asyncio.Task | None = None
 
+    # Prefetch state: run context tools before audible greeting
+    prefetch_done = False
+    prefetch_instruction_sent = False
+    prefetch_tools_required = {
+        "get_previous_session_context",
+        "get_session_context_for_patient",
+    }
+    prefetch_tools_completed: set[str] = set()
+
     async def upstream_task() -> None:
         """Receives messages from browser WebSocket and sends to ADK."""
         nonlocal downstream_task_ref
@@ -376,16 +385,106 @@ async def voice_session_ws(websocket: WebSocket):
 
     async def downstream_task() -> None:
         """Receives ADK events from run_live() and sends to browser."""
+        nonlocal prefetch_done, prefetch_instruction_sent, prefetch_tools_completed
+
+        # On first downstream iteration, inject a short, invisible instruction so the
+        # agent prefetches context before greeting out loud.
+        if not prefetch_instruction_sent:
+            try:
+                live_request_queue.send_content(
+                    types.Content(
+                        parts=[
+                            types.Part(
+                                text=(
+                                    "Before greeting the patient out loud, first call "
+                                    "get_previous_session_context (if available), then "
+                                    "get_session_context_for_patient. After both tool "
+                                    "calls return, begin your audible greeting."
+                                )
+                            )
+                        ]
+                    )
+                )
+                prefetch_instruction_sent = True
+            except Exception as instr_err:  # noqa: BLE001
+                logger.debug("Prefetch instruction send failed: %s", instr_err)
+
         async for event in patient_runner.run_live(
             user_id=user_id,
             session_id=session_id,
             live_request_queue=live_request_queue,
             run_config=run_config,
         ):
+            # Send explicit toolStart so the client can show "Prelude is thinking" (ADK event
+            # serialization may not include function_call in a way the client sees)
+            if getattr(event, "get_function_calls", None):
+                for fc in event.get_function_calls():
+                    name = getattr(fc, "name", None)
+                    if name:
+                        logger.info("Voice session tool call: %s", name)
+                        await websocket.send_text(
+                            json.dumps({"toolStart": True, "tool": name})
+                        )
+                        break
+
+            # Track completion of the initial context tools so we can delay audible
+            # output until both have finished successfully.
+            if getattr(event, "get_function_responses", None) and event.get_function_responses():
+                for fr in event.get_function_responses():
+                    tool_name = getattr(fr, "name", None) or getattr(
+                        fr, "function_name", None
+                    )
+                    if not tool_name:
+                        continue
+                    response_payload = getattr(fr, "response", None)
+                    # Treat missing or non-dict responses as non-error; our Firestore tools
+                    # always return a dict with status.
+                    status = None
+                    if isinstance(response_payload, dict):
+                        status = response_payload.get("status")
+
+                    if (
+                        tool_name in prefetch_tools_required
+                        and status != "error"
+                    ):
+                        prefetch_tools_completed.add(tool_name)
+
+                if not prefetch_done and prefetch_tools_required.issubset(
+                    prefetch_tools_completed
+                ):
+                    prefetch_done = True
+
+                # When a tool finishes, send toolEnd so client hides spinner, then nudge the
+                # model to respond verbally. The nudge explicitly guards against double turns:
+                # if the agent has already spoken since the last patient turn, it should ignore it.
+                await websocket.send_text(json.dumps({"toolEnd": True}))
+                try:
+                    live_request_queue.send_content(
+                        types.Content(
+                            parts=[
+                                types.Part(
+                                    text=(
+                                        "(System nudge: If you have not yet spoken out "
+                                        "loud in response to the patient's last turn, "
+                                        "now offer ONE brief verbal response and then "
+                                        "wait for them. If you already responded, "
+                                        "ignore this message.)"
+                                    )
+                                )
+                            ]
+                        )
+                    )
+                except Exception as nudge_err:
+                    logger.debug("Post-tool nudge send failed: %s", nudge_err)
+
             event_json = event.model_dump_json(
                 exclude_none=True, by_alias=True
             )
-            await websocket.send_text(event_json)
+
+            # While prefetch is running, suppress downstream ADK events (including audio)
+            # so the patient does not hear anything until both context tools have completed.
+            if prefetch_done:
+                await websocket.send_text(event_json)
 
     try:
         downstream_task_ref = asyncio.create_task(downstream_task())
@@ -402,6 +501,8 @@ async def voice_session_ws(websocket: WebSocket):
                 error_msg = "Voice model unavailable. Please try again later."
             elif "1008" in error_msg or "policy violation" in error_msg.lower() or "not implemented, or supported, or enabled" in error_msg.lower():
                 error_msg = "The voice session ended due to a service limit. You can start a new session."
+            elif "1011" in error_msg or "internal error occurred" in error_msg.lower():
+                error_msg = "The voice connection had an internal error. Please start a new session."
             await websocket.send_json({"error": error_msg})
         except Exception:
             pass
@@ -458,6 +559,64 @@ async def list_briefs(patient_id: str, uid: str | None = Depends(verify_firebase
         key=lambda b: _to_sorted_timestamp(b.get("generatedAt")), reverse=True
     )
     return briefs
+
+
+@app.get("/api/weekly-briefs/{patient_id}")
+async def list_weekly_briefs(
+    patient_id: str,
+    uid: str | None = Depends(verify_firebase_token),
+):
+    """Return all weekly briefs for a patient, newest first."""
+    from backend.db.firestore_client import query_documents
+    from backend.tools.firestore_tools import _to_sorted_timestamp
+
+    if auth_enabled() and uid is not None and uid != patient_id:
+        raise HTTPException(status_code=403, detail="Forbidden for this patient")
+
+    weekly = await query_documents("weekly_briefs", "patientId", "==", patient_id)
+    weekly.sort(
+        key=lambda w: _to_sorted_timestamp(w.get("weekStart")), reverse=True
+    )
+    return weekly
+
+
+@app.get("/api/weekly-briefs/{patient_id}/current")
+async def get_current_weekly_brief(
+    patient_id: str,
+    uid: str | None = Depends(verify_firebase_token),
+):
+    """Ensure weekly briefs exist for recent completed weeks and return the latest.
+
+    This endpoint performs lazy generation instead of relying on a scheduler.
+    """
+    from backend.db.firestore_client import query_documents
+    from backend.tools.firestore_tools import (
+        _to_sorted_timestamp,
+        generate_weekly_briefs_for_patient,
+    )
+
+    if auth_enabled() and uid is not None and uid != patient_id:
+        raise HTTPException(status_code=403, detail="Forbidden for this patient")
+
+    gen_result = await generate_weekly_briefs_for_patient(patient_id)
+
+    weekly = await query_documents("weekly_briefs", "patientId", "==", patient_id)
+    if not weekly:
+        return {
+            "status": gen_result.get("status", "success"),
+            "generated_count": gen_result.get("generated_count", 0),
+            "weekly_brief": None,
+        }
+
+    weekly.sort(
+        key=lambda w: _to_sorted_timestamp(w.get("weekStart")), reverse=True
+    )
+    latest = weekly[0]
+    return {
+        "status": gen_result.get("status", "success"),
+        "generated_count": gen_result.get("generated_count", 0),
+        "weekly_brief": latest,
+    }
 
 
 @app.post("/api/generate-brief")

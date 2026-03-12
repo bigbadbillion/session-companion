@@ -26,6 +26,7 @@ export interface UseVoiceSessionReturn {
   pendingPatientText: string;
   elapsed: number;
   isMicMuted: boolean;
+  isAgentThinking: boolean;
   errorMessage: string | null;
   brief: BriefContent | null;
   isGeneratingBrief: boolean;
@@ -52,6 +53,7 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
   const [isGeneratingBrief, setIsGeneratingBrief] = useState(false);
   const [pendingAgentText, setPendingAgentText] = useState("");
   const [pendingPatientText, setPendingPatientText] = useState("");
+  const [isAgentThinking, setIsAgentThinking] = useState(false);
 
   const clientRef = useRef<GeminiLiveClient | null>(null);
   const streamerRef = useRef<AudioStreamer | null>(null);
@@ -65,6 +67,7 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
   // Latest partial transcription (replacement, not delta)
   const pendingInputRef = useRef("");
   const pendingOutputRef = useRef("");
+  const queuedAgentAudioRef = useRef<string[]>([]);
 
   // Track whether the agent has spoken — drives "connecting" → "active"
   const agentHasSpokenRef = useRef(false);
@@ -102,10 +105,28 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
 
   /** Strip control-character placeholders (e.g. <ctrl46>) that sometimes appear in Live API transcription. */
   const sanitizeTranscriptText = useCallback((raw: string): string => {
-    return raw
+    let cleaned = raw
       .replace(/<ctrl\d+>/gi, "")
       .replace(/\s+/g, " ")
       .trim();
+
+    // Strip explicit silence/pause markers that the Live API sometimes emits
+    // so they don't clutter the saved transcript or brief.
+    const silenceTokens = new Set([
+      "(silence)",
+      "(Silence)",
+      "(pause)",
+      "(Pause)",
+      "[silence]",
+      "[Silence]",
+      "[pause]",
+      "[Pause]",
+    ]);
+    if (silenceTokens.has(cleaned)) {
+      return "";
+    }
+
+    return cleaned;
   }, []);
 
   const pushTurn = useCallback(
@@ -129,6 +150,7 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
     setElapsed(0);
     elapsedRef.current = 0;
     setBrief(null);
+    setIsAgentThinking(false);
     pendingInputRef.current = "";
     pendingOutputRef.current = "";
     agentHasSpokenRef.current = false;
@@ -171,13 +193,19 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
           },
 
           onAudio: (base64Pcm) => {
+            setIsAgentThinking(false);
             if (!agentHasSpokenRef.current) {
               agentHasSpokenRef.current = true;
               setStatus("active");
               startTimer();
             }
+            // Rely on ADK / Gemini Live barge-in (interrupted events) to stop
+            // playback when the patient speaks, to keep latency minimal.
             playerRef.current?.play(base64Pcm);
           },
+
+          onToolStart: () => setIsAgentThinking(true),
+          onToolEnd: () => setIsAgentThinking(false),
 
           onInputTranscript: (data: TranscriptionData) => {
             // ADK sends replacement text (full text so far), not deltas
@@ -199,6 +227,9 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
           },
 
           onInterrupted: () => {
+            // Stop any currently playing agent audio when Gemini reports
+            // that the user has interrupted. This avoids talking over them
+            // without adding extra client-side delays.
             playerRef.current?.interrupt();
             if (pendingOutputRef.current.trim()) {
               pushTurn("agent", pendingOutputRef.current);
@@ -323,6 +354,7 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
     pendingPatientText,
     elapsed,
     isMicMuted,
+    isAgentThinking,
     errorMessage,
     brief,
     isGeneratingBrief,

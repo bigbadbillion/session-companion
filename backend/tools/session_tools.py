@@ -361,11 +361,27 @@ async def suggest_follow_ups(
     topics = [t["topic"] for t in state["topics"]]
     has_minimized = any(t.get("was_minimized") for t in state["topics"])
 
+    # If the agent (or ADK) calls this tool multiple times for the same patient turn,
+    # avoid repeated model calls by caching the last suggestions for that session_id
+    # and last_patient_turn.
+    last_turn_cached = state.get("last_follow_up_turn")
+    last_suggestions_cached = state.get("last_follow_up_suggestions")
+    if last_turn_cached == last_patient_turn and last_suggestions_cached:
+        return {
+            "status": "success",
+            "follow_ups": last_suggestions_cached,
+            "cached": True,
+        }
+
     suggestions = await suggest_follow_ups_async(
         last_patient_turn=last_patient_turn,
         topics=topics if topics else None,
         has_minimized=has_minimized,
     )
+
+    state["last_follow_up_turn"] = last_patient_turn
+    state["last_follow_up_suggestions"] = suggestions
+
     return {
         "status": "success",
         "follow_ups": suggestions,

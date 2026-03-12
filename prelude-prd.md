@@ -103,7 +103,9 @@ Typing is cognitive labor. Speaking is instinctive. When a patient is emotionall
 
 #### F4 — Patient Session History
 - Patients can view their own past briefs
-- Emotional state trends displayed as a simple chart over time
+- Emotional state trends displayed as a chart over time with:
+  - A weekly view that aggregates Sunday–Saturday and highlights the most frequent dominant emotion for each week (emotion + intensity)
+  - A session-by-session view that shows each prep session individually
 
 #### F5 — Auth
 - Patients sign in with Google OAuth via Firebase Auth
@@ -262,6 +264,27 @@ Cloud Run deploys any Docker container with a single command. It scales to zero 
     }
   ],
   "lastUpdated": "timestamp"
+}
+```
+
+#### `weekly_briefs/{weeklyBriefId}` *(backend-generated weekly summary)*
+```json
+{
+  "weeklyBriefId": "string",
+  "patientId": "string",
+  "weekStart": "timestamp",
+  "weekEnd": "timestamp",
+  "sessions": ["sessionId", "sessionId"],
+  "summary": {
+    "emotionalState": "1–3 sentences summarizing the week's emotional arc",
+    "dominantEmotions": ["string", "string"],
+    "themes": ["string", "string"],
+    "patientWordsSample": "string",
+    "focusItems": ["string"],
+    "patternNote": "string | null"
+  },
+  "generatedAt": "timestamp",
+  "source": "auto | on-demand"
 }
 ```
 
@@ -656,7 +679,7 @@ prelude/
 | # | Task | Status | Notes |
 |---|---|---|---|
 | 6.1 | Add pattern flag indicator on dashboard (highlight if patternNote is present) | ✅ DONE | `src/pages/Dashboard.tsx` — Latest brief card now surfaces a "Pattern noted" callout when `patternNote` is present. |
-| 6.2 | Improve Trends page with richer emotional arc visualizations | ✅ DONE | `src/pages/Trends.tsx` — Emotional intensity chart + session-by-session list + recurring emotion callout provide an at-a-glance emotional arc over time. |
+| 6.2 | Improve Trends page with richer emotional arc visualizations | ✅ DONE | `src/pages/Trends.tsx` — Emotional intensity chart with a weekly aggregate view (most frequent dominant emotion per week) and a session-by-session list, plus a recurring emotion callout, provide an at-a-glance emotional arc over time. |
 | 6.3 | Add brief export (copy to clipboard / download as PDF) | ✅ DONE | `src/pages/BriefView.tsx` — Export PDF button generates a structured PDF via `jsPDF` (emotional state, themes, patient words, focus items, pattern note). |
 | 6.4 | Add brief editing before save (patient can tweak wording) | ✅ DONE | `src/pages/BriefView.tsx`, `src/lib/firestore-sessions.ts` — Editable fields for emotional state, themes, patient words, focus items, and pattern note with "Save Changes" persisting updates to Firestore for existing briefs. |
 | 6.5 | End-to-end patient flow test | ✅ DONE | |

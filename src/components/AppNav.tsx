@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import preludeLogo from "@/assets/prelude-logo.png";
+import PreludeBrand from "@/components/PreludeBrand";
 import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
@@ -29,7 +30,7 @@ const AppNav = () => {
       <div className="hidden md:flex items-center gap-3 px-5 py-5 border-b border-border/60 bg-gradient-to-b from-sage-light/40 to-transparent">
         <img src={preludeLogo} alt="Prelude" className="h-11 w-11 rounded-full object-cover flex-shrink-0 shadow-soft" />
         <div>
-          <span className="font-display text-lg font-semibold text-foreground leading-none block">Prelude</span>
+          <PreludeBrand size="base" className="leading-none block" />
           <span className="text-[11px] text-muted-foreground/70 font-medium tracking-wide">Therapy Prep</span>
         </div>
       </div>

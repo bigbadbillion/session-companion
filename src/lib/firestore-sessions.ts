@@ -4,6 +4,7 @@ import {
   getDoc,
   getDocs,
   updateDoc,
+  deleteDoc,
   query,
   where,
   Timestamp,
@@ -32,6 +33,25 @@ export interface BriefDoc {
   savedToDashboard: boolean;
   savedAt?: string | Timestamp;
   content: BriefContent;
+}
+
+// Optional weekly summary shape (used for backend-driven weekly briefs if needed)
+export interface WeeklyBriefDoc {
+  weeklyBriefId: string;
+  patientId: string;
+  weekStart: string | Timestamp;
+  weekEnd: string | Timestamp;
+  sessions: string[];
+  summary: {
+    emotionalState: string;
+    dominantEmotions?: string[];
+    themes?: string[];
+    patientWordsSample?: string;
+    focusItems?: string[];
+    patternNote?: string | null;
+  };
+  generatedAt: string | Timestamp;
+  source: "auto" | "on-demand";
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -90,4 +110,9 @@ export async function updateBriefContent(
   await updateDoc(briefRef, {
     content,
   });
+}
+
+export async function deleteBrief(briefId: string): Promise<void> {
+  const briefRef = doc(db, "briefs", briefId);
+  await deleteDoc(briefRef);
 }

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import AppLayout from "@/components/AppLayout";
 import { emotionColors, emotionEmojis } from "@/data/mockData";
 import { usePatientData } from "@/hooks/usePatientData";
 import { toDate } from "@/lib/firestore-sessions";
-import { format } from "date-fns";
+import { format, startOfWeek } from "date-fns";
 
 const emotionIntensity: Record<string, number> = {
   calm: 2, flat: 3, reflective: 3, grounded: 2, hopeful: 3,
@@ -19,7 +19,9 @@ const emotionIntensity: Record<string, number> = {
 const Trends = () => {
   const { briefs, loading } = usePatientData();
 
-  const chartData = useMemo(
+  const [mode, setMode] = useState<"weekly" | "sessions">("weekly");
+
+  const sessionChartData = useMemo(
     () =>
       [...briefs].reverse().map((brief) => {
         const emotion = brief.content.dominantEmotion || "calm";
@@ -33,6 +35,66 @@ const Trends = () => {
       }),
     [briefs]
   );
+
+  const weeklyChartData = useMemo(() => {
+    type WeekBucket = {
+      weekStart: Date;
+      counts: Record<string, number>;
+    };
+
+    const byWeek = new Map<string, WeekBucket>();
+
+    briefs.forEach((brief) => {
+      const d = toDate(brief.generatedAt);
+      const ws = startOfWeek(d, { weekStartsOn: 0 });
+      const key = ws.toISOString();
+      const bucket =
+        byWeek.get(key) ??
+        {
+          weekStart: ws,
+          counts: {},
+        };
+
+      const emotion = brief.content.dominantEmotion || "calm";
+      if (emotion) {
+        bucket.counts[emotion] = (bucket.counts[emotion] || 0) + 1;
+      }
+
+      byWeek.set(key, bucket);
+    });
+
+    return Array.from(byWeek.values())
+      .sort((a, b) => a.weekStart.getTime() - b.weekStart.getTime())
+      .map((bucket) => {
+        const entries = Object.entries(bucket.counts);
+        if (entries.length === 0) {
+          return {
+            date: format(bucket.weekStart, "MMM d"),
+            emotion: "calm",
+            intensity: emotionIntensity["calm"],
+            emoji: emotionEmojis["calm"] || "😌",
+            color: emotionColors["calm"] || "hsl(152 30% 50%)",
+          };
+        }
+
+        const [dominantEmotion] = entries.reduce(
+          (best, current) => (current[1] > best[1] ? current : best),
+          entries[0]
+        );
+
+        const intensity = emotionIntensity[dominantEmotion] || 4;
+
+        return {
+          date: format(bucket.weekStart, "MMM d"),
+          emotion: dominantEmotion,
+          intensity,
+          emoji: emotionEmojis[dominantEmotion] || "😌",
+          color: emotionColors[dominantEmotion] || "hsl(152 30% 50%)",
+        };
+      });
+  }, [briefs]);
+
+  const chartData = mode === "weekly" ? weeklyChartData : sessionChartData;
 
   const recurringEmotion = useMemo(() => {
     if (briefs.length < 3) return null;
@@ -60,7 +122,9 @@ const Trends = () => {
           </h1>
           <p className="text-muted-foreground text-sm mb-8">
             {hasData
-              ? `Last ${chartData.length} session${chartData.length === 1 ? "" : "s"} · How you've been showing up`
+              ? mode === "weekly"
+                ? `Last ${chartData.length} week${chartData.length === 1 ? "" : "s"} · How you've been showing up`
+                : `Last ${chartData.length} session${chartData.length === 1 ? "" : "s"} · How you've been showing up`
               : "Your emotional journey will appear here after your first session"}
           </p>
         </motion.div>
@@ -98,9 +162,33 @@ const Trends = () => {
             >
               <Card className="shadow-soft rounded-2xl border-border/50">
                 <CardHeader>
-                  <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                    Emotional Intensity Over Time
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                      Emotional Intensity Over Time
+                    </CardTitle>
+                    <div className="flex items-center gap-2 text-xs">
+                      <button
+                        className={`px-2 py-1 rounded-full ${
+                          mode === "weekly"
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground"
+                        }`}
+                        onClick={() => setMode("weekly")}
+                      >
+                        Weekly
+                      </button>
+                      <button
+                        className={`px-2 py-1 rounded-full ${
+                          mode === "sessions"
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground"
+                        }`}
+                        onClick={() => setMode("sessions")}
+                      >
+                        Session-by-session
+                      </button>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="h-64">
@@ -116,10 +204,12 @@ const Trends = () => {
                             fontSize: "13px",
                             boxShadow: "0 4px 12px -4px rgba(0,0,0,0.1)",
                           }}
-                          formatter={(value: number, _name: string, props: any) => [
-                            `${props.payload.emoji} ${props.payload.emotion} (${value}/10)`,
-                            "Intensity",
-                          ]}
+                          formatter={(value: number, _name: string, props: any) => {
+                            return [
+                              `${props.payload.emoji} ${props.payload.emotion} (${value}/10)`,
+                              mode === "weekly" ? "Week" : "Intensity",
+                            ];
+                          }}
                         />
                         <Bar dataKey="intensity" radius={[8, 8, 0, 0]}>
                           {chartData.map((entry, index) => (
@@ -133,7 +223,7 @@ const Trends = () => {
               </Card>
             </motion.div>
 
-            {/* Session-by-session */}
+            {/* Session-by-session list */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -147,7 +237,7 @@ const Trends = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {chartData.map((entry, i) => (
+                  {(mode === "sessions" ? sessionChartData : weeklyChartData).map((entry, i) => (
                     <motion.div
                       key={i}
                       className="flex items-center gap-3"

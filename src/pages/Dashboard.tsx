@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import AppLayout from "@/components/AppLayout";
 import { emotionEmojis } from "@/data/mockData";
-import { format } from "date-fns";
+import { format, startOfWeek, endOfWeek, isWithinInterval } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePatientData } from "@/hooks/usePatientData";
 import { toDate } from "@/lib/firestore-sessions";
@@ -28,6 +28,13 @@ const Dashboard = () => {
   const latestBrief = briefs[0] ?? null;
   const latestSession = sessions[0] ?? null;
   const sessionCount = sessions.length;
+
+  const now = new Date();
+  const weekStart = startOfWeek(now, { weekStartsOn: 0 });
+  const weekEnd = endOfWeek(now, { weekStartsOn: 0 });
+  const sessionsThisWeek = sessions.filter((s) =>
+    isWithinInterval(toDate(s.completedAt), { start: weekStart, end: weekEnd })
+  ).length;
 
   return (
     <AppLayout>
@@ -193,13 +200,36 @@ const Dashboard = () => {
           </motion.div>
         )}
 
-        {/* Quick Stats */}
+        {/* Weekly context + Quick Stats */}
         <motion.div
-          className="grid grid-cols-2 gap-4"
+          className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2"
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.45, ease: [0.22, 1, 0.36, 1] }}
         >
+          {/* Weekly context card */}
+          <Card className="shadow-soft rounded-2xl border-border/50">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <span className="text-xs text-muted-foreground">This week</span>
+              </div>
+              <p className="font-display text-xl font-bold text-foreground">
+                {sessionsThisWeek}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {sessionsThisWeek === 1
+                  ? "prep session so far"
+                  : "prep sessions so far"}
+              </p>
+              {latestBrief && (
+                <p className="text-xs text-foreground/80 mt-3 line-clamp-3">
+                  {latestBrief.content.emotionalState}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <Link to="/history">
             <Tooltip>
               <TooltipTrigger asChild>

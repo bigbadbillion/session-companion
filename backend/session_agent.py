@@ -23,6 +23,7 @@ from backend.tools.session_tools import (
     get_session_summary,
     cleanup_session,
 )
+from backend.tools.firestore_tools import get_session_context_for_patient
 
 LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
 
@@ -69,5 +70,6 @@ def create_session_agent(
             flag_distress,
             get_session_summary,
             cleanup_session,
+            get_session_context_for_patient,
         ],
     )

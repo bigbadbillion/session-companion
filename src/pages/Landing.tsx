@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import CrisisFooter from "@/components/CrisisFooter";
 import landingHero from "@/assets/landing-hero.jpg";
 import preludeLogo from "@/assets/prelude-logo.png";
+import PreludeBrand from "@/components/PreludeBrand";
 import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -82,7 +83,7 @@ const Landing = () => {
             transition={{ type: "spring", stiffness: 400 }}
           >
             <img src={preludeLogo} alt="Prelude" className="h-10 w-10 rounded-full object-cover flex-shrink-0 shadow-soft" />
-            <span className="font-display text-xl font-semibold text-foreground">Prelude</span>
+            <PreludeBrand size="lg" />
           </motion.div>
           <div className="flex items-center gap-2.5">
             <Button

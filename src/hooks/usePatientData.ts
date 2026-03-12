@@ -33,10 +33,7 @@ export function usePatientData(): PatientData {
     setLoading(true);
     setError(null);
 
-    Promise.all([
-      getPatientBriefs(user.uid),
-      getPatientSessions(user.uid),
-    ])
+    Promise.all([getPatientBriefs(user.uid), getPatientSessions(user.uid)])
       .then(([b, s]) => {
         if (cancelled) return;
         setBriefs(b);

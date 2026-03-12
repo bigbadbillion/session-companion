@@ -13,13 +13,18 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+from google.cloud import firestore
 
 from backend.db.firestore_client import (
     create_document,
     get_document,
     update_document,
     now_utc,
+    get_db,
+    get_user_timezone,
+    get_week_boundaries_for_timestamp,
 )
 
 logger = logging.getLogger(__name__)
@@ -387,3 +392,260 @@ async def check_brief_exists(session_id: str) -> bool:
         return len(briefs) > 0
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Weekly briefs and session context helpers
+# ---------------------------------------------------------------------------
+
+
+async def generate_weekly_briefs_for_patient(
+    patient_id: str,
+    weeks_back: int = 8,
+) -> dict:
+    """Lazily generate missing weekly briefs for completed weeks.
+
+    This helper is intended to be called from an authenticated API endpoint.
+    It looks at the patient's recent session history and creates one
+    `weekly_briefs` document per completed calendar week (Sunday–Saturday)
+    that does not already have a summary.
+    """
+    try:
+        db = get_db()
+        user_doc = await _get_user_doc(patient_id)
+        tz_str = get_user_timezone(user_doc)
+
+        now = now_utc()
+        # Work backwards from LAST COMPLETED week (do not include current in-progress week)
+        week_start_now, _ = get_week_boundaries_for_timestamp(now, tz_str)
+        last_completed_week_end = week_start_now - timedelta(microseconds=1)
+        last_completed_week_start, _ = get_week_boundaries_for_timestamp(
+            last_completed_week_end, tz_str
+        )
+
+        # Fetch existing weekly briefs so we don't duplicate
+        existing_snaps = (
+            db.collection("weekly_briefs")
+            .where(filter=firestore.FieldFilter("patientId", "==", patient_id))
+            .stream()
+        )
+        existing: dict[str, dict] = {}
+        async for doc in existing_snaps:  # type: ignore[assignment]
+            data = doc.to_dict()
+            if not data:
+                continue
+            key = data.get("weekStart")
+            if isinstance(key, str):
+                existing[key] = data
+            elif hasattr(key, "isoformat"):
+                existing[key.isoformat()] = data
+
+        created_weeks: list[dict] = []
+        checked_weeks = 0
+
+        current_week_start = last_completed_week_start
+        while checked_weeks < weeks_back:
+            current_week_end = current_week_start + timedelta(days=7) - timedelta(
+                microseconds=1
+            )
+            key = current_week_start.isoformat()
+            if key not in existing:
+                # Look up sessions in this week
+                session_snaps = (
+                    db.collection("sessions")
+                    .where(
+                        filter=firestore.FieldFilter(
+                            "patientId", "==", patient_id
+                        )
+                    )
+                    .where(
+                        filter=firestore.FieldFilter(
+                            "completedAt", ">=", current_week_start
+                        )
+                    )
+                    .where(
+                        filter=firestore.FieldFilter(
+                            "completedAt", "<=", current_week_end
+                        )
+                    )
+                    .stream()
+                )
+                sessions: list[dict] = []
+                async for s in session_snaps:  # type: ignore[assignment]
+                    data = s.to_dict()
+                    if data:
+                        sessions.append(data)
+
+                if sessions:
+                    # For now, build a minimal summary using counts; in a follow-up
+                    # we can plug this into a dedicated WeeklyBriefGenerator agent.
+                    session_ids = [s.get("sessionId") for s in sessions if s.get("sessionId")]
+                    summary = {
+                        "emotionalState": "This week had "
+                        f"{len(sessions)} prep session{'s' if len(sessions) != 1 else ''}.",
+                        "dominantEmotions": [],
+                        "themes": [],
+                        "patientWordsSample": "",
+                        "focusItems": [],
+                        "patternNote": None,
+                    }
+                    doc_id = f"{patient_id}-{current_week_start.strftime('%Y-%m-%d')}"
+                    weekly_doc = {
+                        "weeklyBriefId": doc_id,
+                        "patientId": patient_id,
+                        "weekStart": current_week_start.isoformat(),
+                        "weekEnd": current_week_end.isoformat(),
+                        "sessions": session_ids,
+                        "summary": summary,
+                        "generatedAt": now.isoformat(),
+                        "source": "on-demand",
+                    }
+                    await create_document("weekly_briefs", weekly_doc, doc_id=doc_id)
+                    created_weeks.append(weekly_doc)
+
+            checked_weeks += 1
+            current_week_start -= timedelta(days=7)
+
+        return {
+            "status": "success",
+            "generated_count": len(created_weeks),
+            "weeks": created_weeks,
+        }
+    except Exception as e:
+        logger.warning(f"generate_weekly_briefs_for_patient failed: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to generate weekly briefs: {e}",
+            "generated_count": 0,
+            "weeks": [],
+        }
+
+async def _get_user_doc(patient_id: str) -> dict | None:
+    """Fetch the user document to read timezone and other prefs.
+
+    This uses the low-level Firestore client directly to avoid adding another
+    public tool surface; it's called by internal helpers and tools below.
+    """
+    try:
+        db = get_db()
+        snap = await db.collection("users").document(patient_id).get()
+        return snap.to_dict() if snap.exists else None
+    except Exception:
+        return None
+
+
+async def get_session_context_for_patient(patient_id: str) -> dict:
+    """Return lightweight session context for a patient.
+
+    This is designed as an ADK tool surface so the SessionAgent can:
+    - Know when the last session was (absolute + relative wording)
+    - Know how many sessions have happened this calendar week
+    - Distinguish first-ever vs first-of-week vs additional sessions
+    """
+    try:
+        db = get_db()
+
+        # Fetch recent sessions for this patient. We avoid Firestore composite index
+        # requirements by filtering on patientId only and sorting in Python.
+        sessions_query = db.collection("sessions").where(
+            filter=firestore.FieldFilter("patientId", "==", patient_id)
+        )
+
+        docs: list[dict] = []
+        async for doc in sessions_query.stream():  # type: ignore[assignment]
+            data = doc.to_dict()
+            if data:
+                docs.append(data)
+
+        if not docs:
+            return {
+                "status": "success",
+                "has_history": False,
+                "kind": "first_session_ever",
+                "last_session_completed_at": None,
+                "time_since_last_session": None,
+                "sessions_this_week": 0,
+            }
+
+        # Most recent session
+        docs.sort(key=lambda s: _to_sorted_timestamp(s.get("completedAt")), reverse=True)
+        last = docs[0]
+        last_completed_at_raw = last.get("completedAt")
+        if hasattr(last_completed_at_raw, "isoformat"):
+            last_completed_at_iso = last_completed_at_raw.isoformat()
+            last_completed_dt = last_completed_at_raw
+        else:
+            last_completed_at_iso = str(last_completed_at_raw)
+            try:
+                last_completed_dt = datetime.fromisoformat(last_completed_at_iso)
+            except Exception:
+                last_completed_dt = now_utc()
+
+        # Resolve timezone and compute week boundaries around "now"
+        user_doc = await _get_user_doc(patient_id)
+        tz_str = get_user_timezone(user_doc)
+        now = now_utc()
+        week_start_utc, week_end_utc = get_week_boundaries_for_timestamp(now, tz_str)
+
+        # Count how many sessions fall in the current week
+        sessions_this_week = 0
+        for s in docs:
+            completed_raw = s.get("completedAt")
+            if hasattr(completed_raw, "isoformat"):
+                completed_dt = completed_raw
+            else:
+                try:
+                    completed_dt = datetime.fromisoformat(str(completed_raw))
+                except Exception:
+                    continue
+            if week_start_utc <= completed_dt <= week_end_utc:
+                sessions_this_week += 1
+
+        # Determine context kind
+        total_sessions = len(docs)
+        if total_sessions == 0:
+            kind = "first_session_ever"
+        elif sessions_this_week <= 1:
+            # Last session might be before this week; treat this as first of week
+            kind = "first_session_of_week"
+        else:
+            kind = "additional_session_this_week"
+
+        # Human-friendly relative time since last session
+        delta = now - last_completed_dt
+        days = delta.days
+        seconds = delta.seconds
+        if days <= 0 and seconds < 60 * 60:
+            time_since = "earlier today"
+        elif days == 0:
+            time_since = "earlier today"
+        elif days == 1:
+            time_since = "yesterday"
+        elif days < 7:
+            time_since = f"{days} days ago"
+        elif days < 14:
+            time_since = "about a week ago"
+        else:
+            weeks = days // 7
+            time_since = f"{weeks} weeks ago"
+
+        return {
+            "status": "success",
+            "has_history": True,
+            "kind": kind,
+            "last_session_completed_at": last_completed_at_iso,
+            "time_since_last_session": time_since,
+            "sessions_this_week": sessions_this_week,
+            "timezone": tz_str,
+        }
+    except Exception as e:
+        logger.warning(f"get_session_context_for_patient failed: {e}")
+        return {
+            "status": "error",
+            "message": f"Could not retrieve session context: {e}",
+            "has_history": False,
+            "kind": "unknown",
+            "last_session_completed_at": None,
+            "time_since_last_session": None,
+            "sessions_this_week": 0,
+        }

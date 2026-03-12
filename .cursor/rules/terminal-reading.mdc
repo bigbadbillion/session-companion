@@ -1,0 +1,7 @@
+## Terminal Log Reading
+
+- Always use terminal logs from the **latest inputs** when debugging runtime behavior.
+- Prefer reading from the **end of the terminal file** (using negative line offsets or tail-like behavior) rather than scanning only older sections.
+- When correlating bugs to a specific session, match by **most recent timestamp and WebSocket connect line** before drawing conclusions.
+- If multiple sessions exist, clearly distinguish which timestamped block you are analyzing and avoid mixing older runs with the current one.
+

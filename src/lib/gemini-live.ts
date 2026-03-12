@@ -38,6 +38,8 @@ export interface GeminiLiveCallbacks {
   onOutputTranscript?: (data: TranscriptionData) => void;
   onTurnComplete?: () => void;
   onInterrupted?: () => void;
+  onToolStart?: () => void;
+  onToolEnd?: () => void;
   onError?: (error: string) => void;
   onClose?: () => void;
 }
@@ -52,6 +54,10 @@ interface AdkEventPart {
     data: string;
   };
   functionCall?: Record<string, unknown>;
+  functionResponse?: Record<string, unknown>;
+  // ADK may serialize with snake_case
+  function_call?: Record<string, unknown>;
+  function_response?: Record<string, unknown>;
 }
 
 interface AdkEvent {
@@ -99,6 +105,7 @@ export class GeminiLiveClient {
   private _connected = false;
   private setupNotified = false;
   private handshakeTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private _serverErrorReceived = false;
 
   constructor(
     config: GeminiLiveConfig,
@@ -162,7 +169,19 @@ export class GeminiLiveClient {
 
         // Backend may send {error: "..."} when the model connection fails
         if (parsed.error) {
+          this._serverErrorReceived = true;
           this.callbacks.onError?.(parsed.error);
+          return;
+        }
+
+        // Backend sends explicit toolStart/toolEnd so the UI can show the thinking spinner
+        // (ADK event serialization often doesn't include function_call in the client payload)
+        if (parsed.toolStart === true) {
+          this.callbacks.onToolStart?.();
+          return;
+        }
+        if (parsed.toolEnd === true) {
+          this.callbacks.onToolEnd?.();
           return;
         }
 
@@ -182,6 +201,11 @@ export class GeminiLiveClient {
       this.clearHandshakeTimeout();
       const wasConnected = this._connected;
       this._connected = false;
+      // If we already showed the server's error message, don't show a second one
+      if (this._serverErrorReceived) {
+        this.callbacks.onClose?.();
+        return;
+      }
       if (ev.code === 4401) {
         this.callbacks.onError?.("Please sign in again.");
       } else if (ev.code === 1000) {
@@ -268,9 +292,23 @@ export class GeminiLiveClient {
       });
     }
 
-    // Content parts (audio or text)
+    // Content parts (audio, text, or tool call/response)
     const parts = event.content?.parts;
     if (!parts?.length) return;
+
+    // Tool lifecycle: notify so the UI can show a thinking state (camelCase or snake_case)
+    for (const part of parts) {
+      if (part.functionCall ?? part.function_call) {
+        this.callbacks.onToolStart?.();
+        break;
+      }
+    }
+    for (const part of parts) {
+      if (part.functionResponse ?? part.function_response) {
+        this.callbacks.onToolEnd?.();
+        break;
+      }
+    }
 
     for (const part of parts) {
       // Skip thinking/reasoning text

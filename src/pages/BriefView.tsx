@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, Edit3, Download, Thermometer, MessageSquareQuote, Target, TrendingUp, Loader2 } from "lucide-react";
 import { jsPDF } from "jspdf";
@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import AppLayout from "@/components/AppLayout";
 import { format } from "date-fns";
 import type { BriefContent } from "@/lib/gemini";
-import { getBrief, toDate, type BriefDoc, updateBriefContent } from "@/lib/firestore-sessions";
+import { getBrief, toDate, type BriefDoc, updateBriefContent, deleteBrief } from "@/lib/firestore-sessions";
 import { emotionEmojis } from "@/data/mockData";
 
 const fadeUp = {
@@ -28,10 +28,12 @@ interface ResolvedBrief {
 
 const BriefView = () => {
   const { briefId } = useParams();
+  const navigate = useNavigate();
   const [firestoreBrief, setFirestoreBrief] = useState<BriefDoc | null>(null);
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [draft, setDraft] = useState<BriefContent | null>(null);
 
   // Try sessionStorage for "latest" (just-generated brief)
@@ -215,6 +217,22 @@ const BriefView = () => {
       "yyyy-MM-dd"
     )}.pdf`;
     doc.save(fileName);
+  };
+
+  const handleDelete = async () => {
+    if (!briefId || briefId === "latest" || !firestoreBrief || deleting) return;
+    const confirmed = window.confirm(
+      "Delete this brief from your history? This can't be undone."
+    );
+    if (!confirmed) return;
+    try {
+      setDeleting(true);
+      await deleteBrief(briefId);
+      navigate("/history");
+    } catch (err) {
+      console.error("Failed to delete brief:", err);
+      setDeleting(false);
+    }
   };
 
   if (loading) {
@@ -463,7 +481,7 @@ const BriefView = () => {
           </div>
 
           {/* Actions */}
-          <motion.div className="flex gap-3 mt-8" variants={fadeUp} custom={6}>
+          <motion.div className="flex flex-wrap gap-3 mt-8" variants={fadeUp} custom={6}>
             <Button
               variant="soft"
               size="sm"
@@ -494,6 +512,23 @@ const BriefView = () => {
             <Button variant="outline" size="sm" className="gap-2" onClick={handleExportPdf}>
               <Download className="h-3.5 w-3.5" /> Export PDF
             </Button>
+            {briefId !== "latest" && firestoreBrief && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 ml-auto text-destructive border-destructive/40 hover:bg-destructive/5"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Deleting...
+                  </>
+                ) : (
+                  "Delete Brief"
+                )}
+              </Button>
+            )}
           </motion.div>
 
           <Separator className="mt-8 mb-4" />

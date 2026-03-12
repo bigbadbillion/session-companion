@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import CrisisFooter from "@/components/CrisisFooter";
+import PreludeBrand from "@/components/PreludeBrand";
+import preludeLogo from "@/assets/prelude-logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import { useVoiceSession } from "@/hooks/useVoiceSession";
 
@@ -170,16 +172,24 @@ const Session = () => {
       <header className="border-b border-border bg-background/90 backdrop-blur-xl px-6 py-3">
         <div className="container mx-auto max-w-3xl flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <img src={preludeLogo} alt="" className="h-8 w-8 rounded-full object-cover flex-shrink-0" />
+            <PreludeBrand size="sm" />
+          </div>
+          <div className="flex items-center gap-3">
             <motion.div
               className="h-2.5 w-2.5 rounded-full bg-primary"
               animate={isActive ? { scale: [1, 1.3, 1], opacity: [1, 0.6, 1] } : {}}
               transition={{ repeat: Infinity, duration: 1.5 }}
             />
             <Badge variant="secondary" className="font-normal text-xs">
-              {isConnecting ? "Connecting..." : isActive ? "Listening..." : "Ready"}
+              {isConnecting
+                ? "Connecting..."
+                : session.isAgentThinking
+                  ? "Reflecting…"
+                  : isActive
+                    ? "Listening..."
+                    : "Ready"}
             </Badge>
-          </div>
-          <div className="flex items-center gap-3">
             <span className="text-sm text-muted-foreground font-mono">
               {formatTime(session.elapsed)} / 10:00
             </span>
@@ -284,7 +294,7 @@ const Session = () => {
                 ))}
               </AnimatePresence>
 
-              {session.transcript.length === 0 && isActive && (
+              {session.transcript.length === 0 && isActive && !session.isAgentThinking && (
                 <motion.div className="flex justify-start" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                   <Card className="bg-card border-0 shadow-soft rounded-2xl rounded-bl-md">
                     <CardContent className="p-4">
@@ -302,6 +312,42 @@ const Session = () => {
                   </Card>
                 </motion.div>
               )}
+
+              <AnimatePresence>
+                {session.isAgentThinking && (
+                  <motion.div
+                    className="flex justify-start"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <Card className="max-w-[80%] border-0 shadow-soft bg-card/80 rounded-2xl rounded-bl-md overflow-hidden">
+                      <CardContent className="p-4 flex items-center gap-3">
+                        <div className="flex gap-1.5" aria-hidden>
+                          {[0, 1, 2].map((d) => (
+                            <motion.div
+                              key={d}
+                              className="h-2 w-2 rounded-full bg-primary/60"
+                              animate={{
+                                scale: [1, 1.4, 1],
+                                opacity: [0.5, 1, 0.5],
+                              }}
+                              transition={{
+                                repeat: Infinity,
+                                duration: 1.2,
+                                delay: d * 0.15,
+                                ease: "easeInOut",
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <span className="text-sm text-muted-foreground">Prelude is reflecting…</span>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div ref={transcriptEndRef} />
             </div>
