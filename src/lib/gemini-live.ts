@@ -310,6 +310,16 @@ export class GeminiLiveClient {
       }
     }
 
+    // When the only output transcription in this event is a filler ("hmm", "umm", "mmm...", "Wait."), skip playing
+    // that audio so the user doesn't hear the vocalized filler after a response.
+    const outText = (event.outputTranscription?.text ?? "").trim();
+    const isFillerOnly =
+      /^\s*[hH]m+m+\.*\?*\s*$/i.test(outText) ||
+      /^\s*[uU]m+m+\.*\s*$/i.test(outText) ||
+      /^\s*[uU]h+\.*\s*$/i.test(outText) ||
+      /^\s*[mM]{2,}\.?\?*\s*$/i.test(outText) ||
+      /^\s*Wait\.?\s*$/i.test(outText);
+
     for (const part of parts) {
       // Skip thinking/reasoning text
       if (part.thought) continue;
@@ -318,7 +328,7 @@ export class GeminiLiveClient {
         this.callbacks.onText?.(part.text);
       } else if (part.inlineData) {
         const mime = part.inlineData.mimeType || "";
-        if (mime.startsWith("audio/")) {
+        if (mime.startsWith("audio/") && !isFillerOnly) {
           this.callbacks.onAudio?.(part.inlineData.data);
         }
       }

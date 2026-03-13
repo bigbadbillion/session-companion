@@ -30,6 +30,7 @@ def _get_session(session_id: str) -> dict:
             "topics": [],
             "patient_words": [],
             "distress_flagged": False,
+            "suggest_follow_ups_invocations": 0,
         }
     return _session_store[session_id]
 
@@ -301,41 +302,20 @@ async def get_memory_cues(patient_id: str | None = None) -> dict:
     Use when the patient is vague or has only given a high-level summary. The agent
     should use one as inspiration and adapt to the conversation, not read verbatim.
 
-    If patient_id is provided and the patient has a previous session, one continuity
-    cue is included (e.g. "Last time you mentioned X. Did anything similar or different
-    come up this week?").
+    Previous-session continuity (e.g. "Last time you mentioned X") is already available
+    from get_previous_session_context run before the greeting; do not fetch it again here.
 
     Args:
-        patient_id: Optional. The patient's user ID. When provided, a continuity cue
-            from their last session may be included.
+        patient_id: Optional. Unused; kept for API compatibility. Continuity comes from
+            the start-of-session context the agent already has.
 
     Returns:
-        dict with status and a list of cue strings (memory_jog_cues, and optionally
-        continuity_cue when prior session exists).
+        dict with status and memory_jog_cues (list of cue strings).
     """
-    cues = list(_MEMORY_CUES_STATIC)
-
-    continuity_cue = None
-    if patient_id:
-        try:
-            prev = await get_previous_session_context(patient_id)
-            if prev.get("has_previous") and prev.get("previous_themes"):
-                themes = prev["previous_themes"]
-                theme = themes[0] if themes else "what you brought up"
-                continuity_cue = (
-                    f"Last time you mentioned {theme}. "
-                    "Did anything similar or different come up this week?"
-                )
-        except Exception as e:
-            logger.debug("get_memory_cues: could not add continuity cue: %s", e)
-
-    result = {
+    return {
         "status": "success",
-        "memory_jog_cues": cues,
+        "memory_jog_cues": list(_MEMORY_CUES_STATIC),
     }
-    if continuity_cue:
-        result["continuity_cue"] = continuity_cue
-    return result
 
 
 async def suggest_follow_ups(
@@ -371,6 +351,23 @@ async def suggest_follow_ups(
             "status": "success",
             "follow_ups": last_suggestions_cached,
             "cached": True,
+        }
+
+    # Skip the 5–7s reflection-engine call for the first two invocations per session
+    # so the first responses after the greeting are fast regardless of prompt adherence.
+    invocations = state.get("suggest_follow_ups_invocations", 0)
+    if invocations < 2:
+        state["suggest_follow_ups_invocations"] = invocations + 1
+        early_suggestions = [
+            "Reflect what they said in your own words, then ask one specific question.",
+            "Notice what carried weight and ask about that.",
+        ]
+        state["last_follow_up_turn"] = last_patient_turn
+        state["last_follow_up_suggestions"] = early_suggestions
+        return {
+            "status": "success",
+            "follow_ups": early_suggestions,
+            "early_response": True,
         }
 
     suggestions = await suggest_follow_ups_async(

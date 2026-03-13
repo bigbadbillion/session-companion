@@ -72,6 +72,13 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
   // Track whether the agent has spoken — drives "connecting" → "active"
   const agentHasSpokenRef = useRef(false);
 
+  // Single turn per user turn: block next agent output until user speaks. We set "turn ended"
+  // only after a short delay past onTurnComplete so trailing audio for the current turn can arrive.
+  const agentTurnEndedRef = useRef(false);
+  const userSpokeSinceRef = useRef(false);
+  const turnCompleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const TURN_END_GRACE_MS = 600;
+
   // ── Timer ───────────────────────────────────────────────────────────────
 
   const startTimer = useCallback(() => {
@@ -94,6 +101,10 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (turnCompleteTimeoutRef.current) {
+        clearTimeout(turnCompleteTimeoutRef.current);
+        turnCompleteTimeoutRef.current = null;
+      }
       stopTimer();
       streamerRef.current?.stop();
       playerRef.current?.destroy();
@@ -103,15 +114,18 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
 
   // ── Transcript helpers ──────────────────────────────────────────────────
 
-  /** Strip control-character placeholders (e.g. <ctrl46>) that sometimes appear in Live API transcription. */
+  /** Strip control characters, silence markers, and filler (e.g. "hmm..") from Live API transcription. */
   const sanitizeTranscriptText = useCallback((raw: string): string => {
     let cleaned = raw
       .replace(/<ctrl\d+>/gi, "")
       .replace(/\s+/g, " ")
       .trim();
 
-    // Strip explicit silence/pause markers that the Live API sometimes emits
-    // so they don't clutter the saved transcript or brief.
+    // Strip trailing filler ("hmm", "hmm..", "Hmm?", "mmm...") that the model sometimes appends after a response.
+    cleaned = cleaned.replace(/\s*[hH]m+m+\.*\?*\.*$/i, "").trim();
+    cleaned = cleaned.replace(/\s*[mM]{2,}\.?\.*\?*$/i, "").trim();
+
+    // Strip explicit silence/pause markers that the Live API sometimes emits.
     const silenceTokens = new Set([
       "(silence)",
       "(Silence)",
@@ -126,6 +140,24 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
       return "";
     }
 
+    // Drop turns that are only filler ("hmm", "Hmm?", "mmm...", etc.) so they don't appear as separate lines.
+    if (/^[hH]m+m+\.*\?*\.*$/i.test(cleaned) || /^[mM]{2,}\.?\.*\?*$/i.test(cleaned)) {
+      return "";
+    }
+
+    // Hide internal system nudge text or model's acknowledgment of it (e.g. "(System nudge ignored)").
+    if (/\(?\s*System nudge\s*(ignored|:)?/i.test(cleaned) || /nudge\s+ignored/i.test(cleaned)) {
+      return "";
+    }
+
+    // Drop second-turn phrases where the agent says it's waiting instead of just staying silent.
+    if (/^(I'm )?waiting for (your |you to )?response\.?$/i.test(cleaned)) return "";
+    if (/^I'll just wait for your response\.?$/i.test(cleaned)) return "";
+    if (/^I'm here when you're ready\.?$/i.test(cleaned)) return "";
+    if (/^Take your time\.?$/i.test(cleaned)) return "";
+    if (/^(Whenever you're ready|I'll wait)\.?$/i.test(cleaned)) return "";
+    if (/^Wait\.?$/i.test(cleaned)) return "";
+
     return cleaned;
   }, []);
 
@@ -133,6 +165,13 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
     (speaker: "agent" | "patient", text: string) => {
       const cleaned = sanitizeTranscriptText(text);
       if (!cleaned) return;
+
+      // Avoid duplicate consecutive agent turns (e.g. same outputTranscript delivered twice).
+      const prev = transcriptRef.current[transcriptRef.current.length - 1];
+      if (speaker === "agent" && prev?.speaker === "agent" && prev.text === cleaned) {
+        return;
+      }
+
       const turn: TranscriptTurn = { speaker, text: cleaned, timestamp: Date.now() };
       transcriptRef.current = [...transcriptRef.current, turn];
       setTranscript(transcriptRef.current);
@@ -145,17 +184,23 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
   const startSession = useCallback(async () => {
     setStatus("connecting");
     setErrorMessage(null);
-    setTranscript([]);
-    transcriptRef.current = [];
-    setElapsed(0);
-    elapsedRef.current = 0;
-    setBrief(null);
-    setIsAgentThinking(false);
-    pendingInputRef.current = "";
-    pendingOutputRef.current = "";
-    agentHasSpokenRef.current = false;
-    setPendingAgentText("");
-    setPendingPatientText("");
+        setTranscript([]);
+        transcriptRef.current = [];
+        setElapsed(0);
+        elapsedRef.current = 0;
+        setBrief(null);
+        setIsAgentThinking(false);
+        pendingInputRef.current = "";
+        pendingOutputRef.current = "";
+        agentHasSpokenRef.current = false;
+        agentTurnEndedRef.current = false;
+        userSpokeSinceRef.current = false;
+        if (turnCompleteTimeoutRef.current) {
+          clearTimeout(turnCompleteTimeoutRef.current);
+          turnCompleteTimeoutRef.current = null;
+        }
+        setPendingAgentText("");
+        setPendingPatientText("");
 
     try {
       const player = new AudioPlayer();
@@ -193,14 +238,18 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
           },
 
           onAudio: (base64Pcm) => {
+            const allow = !agentTurnEndedRef.current || userSpokeSinceRef.current;
+            if (!allow) return;
+            if (userSpokeSinceRef.current) {
+              userSpokeSinceRef.current = false;
+              agentTurnEndedRef.current = false;
+            }
             setIsAgentThinking(false);
             if (!agentHasSpokenRef.current) {
               agentHasSpokenRef.current = true;
               setStatus("active");
               startTimer();
             }
-            // Rely on ADK / Gemini Live barge-in (interrupted events) to stop
-            // playback when the patient speaks, to keep latency minimal.
             playerRef.current?.play(base64Pcm);
           },
 
@@ -210,6 +259,13 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
           onInputTranscript: (data: TranscriptionData) => {
             // ADK sends replacement text (full text so far), not deltas
             pendingInputRef.current = data.text;
+            if (data.text.trim()) {
+              userSpokeSinceRef.current = true;
+              if (turnCompleteTimeoutRef.current) {
+                clearTimeout(turnCompleteTimeoutRef.current);
+                turnCompleteTimeoutRef.current = null;
+              }
+            }
             if (data.finished) {
               pushTurn("patient", data.text);
               pendingInputRef.current = "";
@@ -218,6 +274,12 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
           },
 
           onOutputTranscript: (data: TranscriptionData) => {
+            const allow = !agentTurnEndedRef.current || userSpokeSinceRef.current;
+            if (!allow) return;
+            if (userSpokeSinceRef.current) {
+              userSpokeSinceRef.current = false;
+              agentTurnEndedRef.current = false;
+            }
             pendingOutputRef.current = data.text;
             if (data.finished) {
               pushTurn("agent", data.text);
@@ -239,7 +301,11 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
           },
 
           onTurnComplete: () => {
-            // No-op for text — onOutputTranscript is the sole authority.
+            if (turnCompleteTimeoutRef.current) clearTimeout(turnCompleteTimeoutRef.current);
+            turnCompleteTimeoutRef.current = setTimeout(() => {
+              turnCompleteTimeoutRef.current = null;
+              agentTurnEndedRef.current = true;
+            }, TURN_END_GRACE_MS);
           },
 
           onError: (error) => {

@@ -13,7 +13,7 @@ _Living document. Updated by coding agent as build progresses._
 | **Deadline** | March 16, 2026 @ 5:00pm PDT |
 | **Category** | Live Agents 🗣️ |
 | **Prize Target** | Grand Prize ($25,000) + Best Live Agent ($10,000) |
-| **Last Updated** | March 1, 2026 (patient-only rewrite) |
+| **Last Updated** | March 12, 2026 (session prompt simplification + guidelines) |
 | **Build Status** | 🟡 In Progress |
 
 ---
@@ -25,7 +25,8 @@ _Living document. Updated by coding agent as build progresses._
 3. [Core Features](#3-core-features)
 4. [Technical Architecture](#4-technical-architecture)
 5. [Data Model](#5-data-model)
-6. [Agent Conversation Design](#6-agent-conversation-design)
+6. [Agent Conversation Design](#6-agent-conversation-design)  
+   - [Session Prompt Guidelines (Do's and Don'ts)](#session-prompt-guidelines-dos-and-donts)
 7. [Brief Format Specification](#7-brief-format-specification)
 8. [Build Phases & Task Tracker](#8-build-phases--task-tracker)
 9. [Hackathon Submission Checklist](#9-hackathon-submission-checklist)
@@ -304,6 +305,8 @@ ADKOrchestrator
 
 The SessionAgent must embody a specific character: warm, unhurried, slightly more reflective than a friend, slightly less clinical than a therapist. It never diagnoses. It never advises. It asks, reflects, and listens.
 
+**Current implementation:** The live session prompt lives in `backend/prompts/session_prompts.py` and is kept **short and clear** (~55 lines). In March 2026 we discovered that an overgrown prompt (many repeated "one turn" rules, long lists of forbidden phrases, and complex nudge-handling instructions) caused the agent to freeze (long pauses with no response even after tools completed and the backend nudge fired) and to emit extra filler turns ("Wait.", "I'll just wait for your response"). Simplifying the prompt—putting "Always respond when the patient speaks" first and removing redundant restrictions—resolved both issues. The phase fragments below are reference for tone and structure; the source of truth for behavior is the simplified prompt in code. See **Session Prompt Guidelines** below before editing that file.
+
 ---
 
 #### Phase 1 — Warm Open (~60 seconds)
@@ -463,6 +466,29 @@ Output format:
   "patternNote": "string or null"
 }
 ```
+
+---
+
+### Session Prompt Guidelines (Do's and Don'ts)
+
+When editing `backend/prompts/session_prompts.py`, follow these rules so we never reintroduce the bloat that caused agent freezes and extra filler turns.
+
+**Do:**
+- **Keep the prompt short.** Target ~50–60 lines. If it grows past ~80 lines, trim before adding more.
+- **Lead with the primary behavior.** The first rule under "core behavior" should be: always respond when the patient speaks; never leave them waiting in silence.
+- **State each rule once.** One clear sentence per idea. No repeating "one response per turn" in multiple sections.
+- **Prefer positive instructions.** e.g. "Respond when they speak" over long lists of "do not say X, Y, Z."
+- **Leave out implementation details.** The model does not need to know about backend nudges, tool-end events, or client-side behavior.
+- **Test after edits.** Run a short voice session and confirm the agent responds promptly after the user speaks and does not emit extra filler turns.
+
+**Don't:**
+- **Don't add long "do not say" lists.** Avoid phrases like "Never say Wait, waiting for your response, I'm here when you're ready, take your time, hmm, mmm…" in the prompt. Handle rare filler in client transcript sanitization instead.
+- **Don't repeat the same rule in multiple places.** Redundant "one turn per response" or "wait in silence" in opening, tools, critical rules, and phase text confuses the model.
+- **Don't add nudge-handling instructions.** Telling the model to "ignore the nudge if you've already spoken" adds complexity and can contribute to hesitation. The backend nudge is a hint; the model should just respond naturally.
+- **Don't grow the prompt to fix edge cases.** If the model occasionally says "Wait." or "I'll just wait," add client-side sanitization (transcript + optional audio skip), not more prompt rules.
+- **Don't add rules that conflict with "respond when they speak."** Any rule that emphasizes silence or "don't speak" too strongly can make the model hesitate to respond at all.
+
+**Rationale:** LLMs naturally tend to respond when the user speaks. An overgrown prompt with many restrictions and repetitions caused the opposite: long pauses (no response until the user said "are you there?") and extra filler turns. Simplifying the prompt and putting "always respond" first restored reliable behavior.
 
 ---
 
@@ -840,6 +866,7 @@ ALLOWED_ORIGINS=http://localhost:3000     # update for production domain
 
 | Risk | Likelihood | Severity | Mitigation |
 |---|---|---|---|
+| **Session prompt bloat causes agent freezes or extra turns** | Medium | High | Keep `backend/prompts/session_prompts.py` short (~50–60 lines). Follow **Session Prompt Guidelines** in Section 6 (do's and don'ts). Never add long "do not say" lists or repeat the same rule in multiple places. Handle filler phrases in client transcript sanitization, not in the prompt. |
 | Gemini Live API latency makes conversation feel unnatural | Medium | High | Test early (Phase 2). Use streaming audio, not batch. Add subtle audio cue during processing gaps. |
 | Patient becomes distressed during session | Low | High | Phase 3 prompt has explicit de-escalation instruction. Add a "pause session" button in UI. Include mental health resource link in app footer. |
 | Brief generator produces hallucinated content | Medium | Medium | Prompt constrains output to transcript content only. Patient reviews brief before saving. |

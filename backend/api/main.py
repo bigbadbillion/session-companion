@@ -430,12 +430,15 @@ async def voice_session_ws(websocket: WebSocket):
             # Track completion of the initial context tools so we can delay audible
             # output until both have finished successfully.
             if getattr(event, "get_function_responses", None) and event.get_function_responses():
+                completed_non_prefetch = False
                 for fr in event.get_function_responses():
                     tool_name = getattr(fr, "name", None) or getattr(
                         fr, "function_name", None
                     )
                     if not tool_name:
                         continue
+                    if tool_name not in prefetch_tools_required:
+                        completed_non_prefetch = True
                     response_payload = getattr(fr, "response", None)
                     # Treat missing or non-dict responses as non-error; our Firestore tools
                     # always return a dict with status.
@@ -454,28 +457,30 @@ async def voice_session_ws(websocket: WebSocket):
                 ):
                     prefetch_done = True
 
-                # When a tool finishes, send toolEnd so client hides spinner, then nudge the
-                # model to respond verbally. The nudge explicitly guards against double turns:
-                # if the agent has already spoken since the last patient turn, it should ignore it.
+                # When a tool finishes, send toolEnd so client hides spinner.
                 await websocket.send_text(json.dumps({"toolEnd": True}))
-                try:
-                    live_request_queue.send_content(
-                        types.Content(
-                            parts=[
-                                types.Part(
-                                    text=(
-                                        "(System nudge: If you have not yet spoken out "
-                                        "loud in response to the patient's last turn, "
-                                        "now offer ONE brief verbal response and then "
-                                        "wait for them. If you already responded, "
-                                        "ignore this message.)"
+                # Only nudge after non-prefetch tools. After prefetch (get_previous_session_context,
+                # get_session_context_for_patient) the agent already has "begin your audible greeting"
+                # — nudging here caused a second message before the patient spoke.
+                if completed_non_prefetch:
+                    try:
+                        live_request_queue.send_content(
+                            types.Content(
+                                parts=[
+                                    types.Part(
+                                        text=(
+                                            "(System nudge: If you have not yet spoken out "
+                                            "loud in response to the patient's last turn, "
+                                            "now offer ONE brief verbal response and then "
+                                            "wait for them. If you already responded, "
+                                            "ignore this message.)"
+                                        )
                                     )
-                                )
-                            ]
+                                ]
+                            )
                         )
-                    )
-                except Exception as nudge_err:
-                    logger.debug("Post-tool nudge send failed: %s", nudge_err)
+                    except Exception as nudge_err:
+                        logger.debug("Post-tool nudge send failed: %s", nudge_err)
 
             event_json = event.model_dump_json(
                 exclude_none=True, by_alias=True
