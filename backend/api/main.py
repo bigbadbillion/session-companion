@@ -284,6 +284,29 @@ async def voice_session_ws(websocket: WebSocket):
     """
     await websocket.accept()
     token = websocket.query_params.get("token")
+    # JWT in query strings can exceed proxy URL limits → "network connection was lost".
+    # Prefer first frame: {"type":"auth","token":"..."} when auth is required.
+    if auth_enabled() and not token:
+        try:
+            first = await asyncio.wait_for(websocket.receive(), timeout=20.0)
+            if first.get("type") == "websocket.disconnect":
+                return
+            if "text" not in first:
+                await websocket.close(code=4401, reason="auth_first")
+                return
+            data = json.loads(first["text"])
+            if data.get("type") != "auth" or not data.get("token"):
+                await websocket.close(code=4401, reason="auth_first")
+                return
+            token = data["token"]
+        except asyncio.TimeoutError:
+            logger.warning("WebSocket auth timeout (no first message)")
+            await websocket.close(code=4401, reason="auth_timeout")
+            return
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning("WebSocket auth parse error: %s", e)
+            await websocket.close(code=4401, reason="auth_invalid")
+            return
     try:
         uid = await verify_firebase_token_ws(token)
     except HTTPException as exc:
@@ -510,7 +533,8 @@ async def voice_session_ws(websocket: WebSocket):
     except WebSocketDisconnect:
         logger.info("Voice session client disconnected")
     except Exception as e:
-        logger.error(f"Voice session error: {e}", exc_info=True)
+        # Log full error for Cloud Run logs (Console → Logs)
+        logger.error("Voice session error (full): %s", repr(e), exc_info=True)
         try:
             error_msg = str(e)
             if "not found" in error_msg or "not supported" in error_msg:

@@ -69,9 +69,25 @@ export function createSessionWebSocket(opts?: {
   if (opts?.patientName) params.set("patientName", opts.patientName);
   if (opts?.userId) params.set("userId", opts.userId);
   if (opts?.sessionId) params.set("sessionId", opts.sessionId);
-  if (opts?.token) params.set("token", opts.token);
+  // Never put Firebase JWT in the URL — long query strings break some proxies / mobile.
+  // Backend accepts first message: { type: "auth", token }.
   const qs = params.toString() ? `?${params.toString()}` : "";
-  return new WebSocket(wsSessionUrl(qs));
+  const ws = new WebSocket(wsSessionUrl(qs));
+  const token = opts?.token;
+  if (token) {
+    ws.addEventListener(
+      "open",
+      () => {
+        try {
+          ws.send(JSON.stringify({ type: "auth", token }));
+        } catch {
+          /* closed */
+        }
+      },
+      { once: true }
+    );
+  }
+  return ws;
 }
 
 export async function checkServerHealth(): Promise<boolean> {
