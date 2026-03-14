@@ -191,10 +191,21 @@ async def verify_firebase_token_ws(token: str | None) -> str | None:
 
 app = FastAPI(title="Prelude API", version="1.0.0")
 
+# CORS: allow_credentials=True + allow_origins=["*"] is invalid per spec — browsers
+# block preflight on cross-origin fetch(..., { headers: { Authorization } }) (e.g. Vercel → Cloud Run).
+# Bearer tokens do not need cookies; use credentials=False with *, or set CORS_ORIGINS (comma-separated).
+_cors_origins_env = os.getenv("CORS_ORIGINS", "").strip()
+if _cors_origins_env:
+    _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    _cors_credentials = True
+else:
+    _cors_origins = ["*"]
+    _cors_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

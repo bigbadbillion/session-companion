@@ -28,7 +28,7 @@ const AppNav = () => {
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur-lg md:static md:border-t-0 md:border-r md:border-border/60 md:h-screen md:w-64 md:flex-shrink-0 md:bg-card/50">
       {/* Desktop header */}
       <div className="hidden md:flex items-center gap-3 px-5 py-5 border-b border-border/60 bg-gradient-to-b from-sage-light/40 to-transparent">
-        <img src={preludeLogo} alt="Prelude" className="h-11 w-11 rounded-full object-cover flex-shrink-0 shadow-soft" />
+        <img src={preludeLogo} alt="Prelude" className="h-11 w-11 rounded-xl object-contain flex-shrink-0 shadow-soft" />
         <div>
           <PreludeBrand size="base" className="leading-none block" />
           <span className="text-[11px] text-muted-foreground/70 font-medium tracking-wide">Therapy Prep</span>

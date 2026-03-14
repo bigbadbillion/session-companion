@@ -1,7 +1,7 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Mic, Clock, TrendingUp, ArrowRight, Sparkles, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Mic, Clock, TrendingUp, ArrowRight, Sparkles, Loader2, CalendarRange } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -22,11 +22,11 @@ const fadeUp = {
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const { briefs, sessions, loading, error } = usePatientData();
+  const { briefs, sessions, weeklyBrief, loading, error } = usePatientData();
+  const [lastWeekExpanded, setLastWeekExpanded] = useState(false);
   const firstName = user?.displayName?.split(" ")[0] || "there";
 
   const latestBrief = briefs[0] ?? null;
-  const latestSession = sessions[0] ?? null;
   const sessionCount = sessions.length;
 
   const now = new Date();
@@ -35,6 +35,12 @@ const Dashboard = () => {
   const sessionsThisWeek = sessions.filter((s) =>
     isWithinInterval(toDate(s.completedAt), { start: weekStart, end: weekEnd })
   ).length;
+
+  const lastWeekRange =
+    weeklyBrief?.weekStart && weeklyBrief?.weekEnd
+      ? `${format(new Date(weeklyBrief.weekStart), "MMM d")}–${format(new Date(weeklyBrief.weekEnd), "MMM d")}`
+      : null;
+  const lastWeekSessionCount = weeklyBrief?.sessions?.length ?? 0;
 
   return (
     <AppLayout>
@@ -57,6 +63,11 @@ const Dashboard = () => {
             {sessionCount > 0
               ? `You've completed ${sessionCount} session${sessionCount === 1 ? "" : "s"} so far`
               : "Ready to prepare for your next session?"}
+            {sessionsThisWeek > 0 && (
+              <span className="block text-xs mt-1 text-muted-foreground/90">
+                This calendar week: {sessionsThisWeek} prep session{sessionsThisWeek === 1 ? "" : "s"}
+              </span>
+            )}
           </motion.p>
         </motion.div>
 
@@ -200,32 +211,107 @@ const Dashboard = () => {
           </motion.div>
         )}
 
-        {/* Weekly context + Quick Stats */}
+        {/* Last week + Quick Stats */}
         <motion.div
           className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2"
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.45, ease: [0.22, 1, 0.36, 1] }}
         >
-          {/* Weekly context card */}
-          <Card className="shadow-soft rounded-2xl border-border/50">
+          {/* Last completed week — weekly summary only (no duplicate of Latest Brief) */}
+          <Card
+            className={`shadow-soft rounded-2xl border-border/50 transition-all duration-300 ${
+              weeklyBrief?.summary
+                ? "cursor-pointer hover:shadow-lifted hover:-translate-y-0.5"
+                : ""
+            }`}
+            onClick={() => weeklyBrief?.summary && setLastWeekExpanded((e) => !e)}
+          >
             <CardContent className="p-5">
-              <div className="flex items-center gap-2 mb-1">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <span className="text-xs text-muted-foreground">This week</span>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <CalendarRange className="h-4 w-4 text-primary" />
+                  <span className="text-xs text-muted-foreground">Last week</span>
+                </div>
+                {weeklyBrief?.summary ? (
+                  <span className="text-xs text-muted-foreground">
+                    {lastWeekExpanded ? "Tap to collapse" : "Tap to expand"}
+                  </span>
+                ) : null}
               </div>
-              <p className="font-display text-xl font-bold text-foreground">
-                {sessionsThisWeek}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {sessionsThisWeek === 1
-                  ? "prep session so far"
-                  : "prep sessions so far"}
-              </p>
-              {latestBrief && (
-                <p className="text-xs text-foreground/80 mt-3 line-clamp-3">
-                  {latestBrief.content.emotionalState}
-                </p>
+              {weeklyBrief?.summary ? (
+                <>
+                  <p className="font-display text-xl font-bold text-foreground">{lastWeekSessionCount}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    prep session{lastWeekSessionCount === 1 ? "" : "s"} that week
+                  </p>
+                  {lastWeekRange && (
+                    <p className="text-[10px] text-muted-foreground mt-1">{lastWeekRange}</p>
+                  )}
+                  {!lastWeekExpanded && (
+                    <p className="text-xs text-foreground/80 mt-3 line-clamp-3">
+                      {weeklyBrief.summary.emotionalState}
+                    </p>
+                  )}
+                  {lastWeekExpanded && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="mt-4 pt-4 border-t border-border/50"
+                    >
+                      <p className="text-sm text-foreground/80 leading-relaxed mb-2">
+                        {weeklyBrief.summary.emotionalState}
+                      </p>
+                      {weeklyBrief.summary.patternNote && (
+                        <p className="text-xs text-primary font-medium mb-2">
+                          Pattern noted · worth exploring
+                        </p>
+                      )}
+                      {weeklyBrief.summary.themes && weeklyBrief.summary.themes.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {weeklyBrief.summary.themes.map((theme) => (
+                            <Badge
+                              key={theme}
+                              variant="secondary"
+                              className="bg-sage-light text-primary border-0 font-normal"
+                            >
+                              {theme}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      {weeklyBrief.summary.focusItems && weeklyBrief.summary.focusItems.length > 0 && (
+                        <ul className="text-xs text-muted-foreground list-disc list-inside space-y-0.5">
+                          {weeklyBrief.summary.focusItems.map((item, i) => (
+                            <li key={i}>{item}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <Link
+                        to="/history?tab=weekly"
+                        className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-3"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        All weekly briefs
+                        <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </motion.div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                    Weekly summaries appear after your first full week (Sun–Sat) with at least one prep session.
+                  </p>
+                  <Link
+                    to="/history?tab=weekly"
+                    className="text-xs text-primary hover:underline inline-flex items-center gap-1 mt-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    Weekly briefs in History
+                    <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </>
               )}
             </CardContent>
           </Card>
@@ -263,7 +349,7 @@ const Dashboard = () => {
                     </p>
                     <p className="text-xs text-muted-foreground mt-1 capitalize">
                       {latestBrief
-                        ? `${latestBrief.content.dominantEmotion} this week`
+                        ? `${latestBrief.content.dominantEmotion} (latest)`
                         : "No data yet"}
                     </p>
                   </CardContent>

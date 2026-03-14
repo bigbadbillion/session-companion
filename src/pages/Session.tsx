@@ -172,7 +172,7 @@ const Session = () => {
       <header className="border-b border-border bg-background/90 backdrop-blur-xl px-6 py-3">
         <div className="container mx-auto max-w-3xl flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src={preludeLogo} alt="" className="h-8 w-8 rounded-full object-cover flex-shrink-0" />
+            <img src={preludeLogo} alt="" className="h-8 w-8 rounded-lg object-contain flex-shrink-0" />
             <PreludeBrand size="sm" />
           </div>
           <div className="flex items-center gap-3">

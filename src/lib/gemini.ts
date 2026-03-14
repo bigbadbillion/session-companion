@@ -20,6 +20,7 @@ export interface BriefContent {
 }
 
 import { auth } from "@/lib/firebase";
+import { apiUrl, wsSessionUrl } from "@/lib/api-base";
 
 export async function generateBrief(
   transcript: string,
@@ -31,7 +32,7 @@ export async function generateBrief(
   const currentUser = auth.currentUser;
   const token = currentUser ? await currentUser.getIdToken() : null;
 
-  const res = await fetch("/api/generate-brief", {
+  const res = await fetch(apiUrl("/api/generate-brief"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -64,23 +65,29 @@ export function createSessionWebSocket(opts?: {
   sessionId?: string;
   token?: string | null;
 }): WebSocket {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const params = new URLSearchParams();
   if (opts?.patientName) params.set("patientName", opts.patientName);
   if (opts?.userId) params.set("userId", opts.userId);
   if (opts?.sessionId) params.set("sessionId", opts.sessionId);
   if (opts?.token) params.set("token", opts.token);
-  const qs = params.toString();
-  const url = `${protocol}//${window.location.host}/ws/session${qs ? `?${qs}` : ""}`;
-  return new WebSocket(url);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return new WebSocket(wsSessionUrl(qs));
 }
 
 export async function checkServerHealth(): Promise<boolean> {
   try {
-    const res = await fetch("/api/health");
+    const res = await fetch(apiUrl("/api/health"));
     const data = await res.json();
     return data.status === "ok";
   } catch {
     return false;
   }
 }
+
+// Weekly brief API lives in weekly-briefs.ts (avoids stale HMR / missing named exports).
+export {
+  getCurrentWeeklyBrief,
+  listWeeklyBriefs,
+  type WeeklyBriefApi,
+  type CurrentWeeklyBriefResponse,
+} from "@/lib/weekly-briefs";

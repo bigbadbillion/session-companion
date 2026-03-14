@@ -82,7 +82,7 @@ const Landing = () => {
             whileHover={{ scale: 1.02 }}
             transition={{ type: "spring", stiffness: 400 }}
           >
-            <img src={preludeLogo} alt="Prelude" className="h-10 w-10 rounded-full object-cover flex-shrink-0 shadow-soft" />
+            <img src={preludeLogo} alt="Prelude" className="h-10 w-10 rounded-xl object-contain flex-shrink-0 shadow-soft" />
             <PreludeBrand size="lg" />
           </motion.div>
           <div className="flex items-center gap-2.5">
@@ -189,7 +189,7 @@ const Landing = () => {
                 </motion.div>
               ))}
             </div>
-            <span className="text-xs ml-2">Loved by 500+ therapy-goers</span>
+            <span className="text-xs ml-2">Loved by growing number of therapy-goers</span>
           </motion.div>
         </motion.div>
 

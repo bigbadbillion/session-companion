@@ -289,6 +289,12 @@ Cloud Run deploys any Docker container with a single command. It scales to zero 
 }
 ```
 
+**Backfill (manual):** If weekly briefs were added after sessions already existed, run from repo root:
+
+`PYTHONPATH=. python backend/scripts/backfill_weekly_briefs.py <FIREBASE_UID> --weeks 52`
+
+Requires `GOOGLE_APPLICATION_CREDENTIALS` (or ADC). Creates one `weekly_briefs` doc per *completed* week that has sessions and didn’t already have a doc.
+
 ---
 
 ## 6. Agent Conversation Design
@@ -714,7 +720,16 @@ prelude/
 
 ### Phase 7 — Cloud Deployment
 **Goal:** Entire backend running on Google Cloud Run. Verifiable for judges.
-**Status:** 🔴 Not Started
+**Status:** 🟢 Backend live on Cloud Run (Option A); rebuild anytime with Cloud Build
+
+**Deploy runbook (backend / ADK agents on Cloud Run)**
+
+| Path | When to use | Commands |
+|------|-------------|----------|
+| **A — Cloud Build (no local Docker)** | Preferred on a machine without Docker running | From repo root: `gcloud config set project prelude-488809` then `gcloud builds submit --config cloudbuild.yaml .` — builds from `backend/`, pushes to **`gcr.io/prelude-488809/prelude-backend`**, deploys service **`prelude-backend`** (us-central1) with Secret Manager `GOOGLE_API_KEY=gemini-api-key:latest`, Vertex env vars, 1Gi / 600s / session affinity. **IAM (once per project):** Cloud Run’s revision SA (default: `PROJECT_NUMBER-compute@developer.gserviceaccount.com`) must have **Secret Accessor** on `gemini-api-key`, or deploy fails: `gcloud secrets add-iam-policy-binding gemini-api-key --member=serviceAccount:366905720098-compute@developer.gserviceaccount.com --role=roles/secretmanager.secretAccessor --project=prelude-488809` |
+| **B — Local Docker + Artifact Registry** | Matches existing AR repo; same image the PRD originally used | (1) Start Docker Desktop. (2) `docker build -t prelude-backend -f backend/Dockerfile backend/` (3) `docker tag prelude-backend us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest` (4) `gcloud auth configure-docker us-central1-docker.pkg.dev` (once) (5) `docker push us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest` (6) Deploy: see 7.5 using that image URL. |
+
+**After deploy:** Cloud Run URL → set frontend API/WebSocket base to that host (env or config). Ensure Secret Manager has **`gemini-api-key`** (Section 11). Firebase Admin on Cloud Run typically needs a service account with Firestore (and optional JSON key as secret) if not using default compute SA.
 
 | # | Task | Status | Notes |
 |---|---|---|---|
@@ -722,8 +737,8 @@ prelude/
 | 7.2 | Write `requirements.txt` with all dependencies pinned | ✅ DONE | `backend/requirements.txt` — google-adk 1.26.0, fastapi, uvicorn, google-cloud-firestore, etc. |
 | 7.3 | Build Docker image locally and test it | ✅ DONE | `docker build -t prelude-backend -f backend/Dockerfile backend/` succeeds; container runs and `GET /api/health` returns 200. Fixed google-cloud-secret-manager version (>=2.22.0) for ADK compatibility. |
 | 7.4 | Push image to Google Artifact Registry | ✅ DONE | Created repo `prelude-backend` in us-central1. Image: `us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest`. **After substantial code changes — rebuild and push:** (1) From project root: `docker build -t prelude-backend -f backend/Dockerfile backend/` (2) `docker tag prelude-backend us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest` (3) `docker push us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest`. Then redeploy (7.5) so Cloud Run uses the new image. |
-| 7.5 | Deploy to Cloud Run: `gcloud run deploy prelude-backend` | ⬜ TODO | **Image (from 7.4):** `us-central1-docker.pkg.dev/prelude-488809/prelude-backend/prelude-backend:latest` — use `--image` with this URL when deploying. |
-| 7.6 | Configure Cloud Run environment variables from Secret Manager | ⬜ TODO | |
+| 7.5 | Deploy to Cloud Run: `gcloud run deploy prelude-backend` | ✅ DONE | **Live URL:** `https://prelude-backend-366905720098.us-central1.run.app` — Image: `gcr.io/prelude-488809/prelude-backend`. First deploy failed until compute SA had Secret Accessor on `gemini-api-key`; then deploy succeeded. Rebuild+push: `gcloud builds submit --config cloudbuild.yaml .` (deploy step will succeed now). |
+| 7.6 | Configure Cloud Run environment variables from Secret Manager | ✅ DONE (via build) | `cloudbuild.yaml` sets `--set-secrets GOOGLE_API_KEY=gemini-api-key:latest` plus Vertex env vars. Add more secrets in Console if needed (Firebase JSON, etc.). |
 | 7.7 | Test deployed backend with real session end-to-end | ⬜ TODO | |
 | 7.8 | Deploy frontend to Firebase Hosting | ⬜ TODO | |
 | 7.9 | Record Cloud Run deployment proof (console screenshot / video) | ⬜ TODO | Required for hackathon submission |

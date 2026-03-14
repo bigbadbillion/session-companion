@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { GeminiLiveClient, type TranscriptionData } from "@/lib/gemini-live";
+import { API_BASE } from "@/lib/api-base";
 import { AudioStreamer, AudioPlayer } from "@/lib/audio";
 import { generateBrief, type BriefContent } from "@/lib/gemini";
 import { useAuth } from "@/contexts/AuthContext";
@@ -203,6 +204,15 @@ export function useVoiceSession(params: SessionParams): UseVoiceSessionReturn {
         setPendingPatientText("");
 
     try {
+      // VITE_* is inlined at build time — without this, WS hits the static host and fails.
+      if (!import.meta.env.DEV && !API_BASE) {
+        setErrorMessage(
+          "Backend URL missing: set VITE_BACKEND_URL in Vercel (Production) to your Cloud Run URL, then redeploy."
+        );
+        setStatus("error");
+        return;
+      }
+
       const player = new AudioPlayer();
       await player.init();
       playerRef.current = player;
