@@ -37,3 +37,6 @@ backend/.venv/
 # Service account keys
 prelude-488809-5d9b5fe674db.json
 *.json.bak
+
+# Local-only PRD (not on GitHub)
+prelude-prd.md
