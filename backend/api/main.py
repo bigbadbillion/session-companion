@@ -516,14 +516,31 @@ async def voice_session_ws(websocket: WebSocket):
                     except Exception as nudge_err:
                         logger.debug("Post-tool nudge send failed: %s", nudge_err)
 
-            event_json = event.model_dump_json(
-                exclude_none=True, by_alias=True
-            )
+            # Only stream ADK payloads to the browser after prefetch (avoid audio before tools).
+            # model_dump_json() can raise on some Live API event shapes (Pydantic enum warnings
+            # in logs) — that was killing the whole WebSocket immediately after connect.
+            if not prefetch_done:
+                continue
 
-            # While prefetch is running, suppress downstream ADK events (including audio)
-            # so the patient does not hear anything until both context tools have completed.
-            if prefetch_done:
-                await websocket.send_text(event_json)
+            try:
+                event_json = event.model_dump_json(
+                    exclude_none=True, by_alias=True
+                )
+            except Exception as ser_err:
+                logger.warning(
+                    "ADK event model_dump_json failed, using fallback: %s",
+                    ser_err,
+                )
+                try:
+                    raw = event.model_dump(
+                        mode="python", exclude_none=True, by_alias=True
+                    )
+                    event_json = json.dumps(raw, default=str)
+                except Exception as ser2:
+                    logger.warning("ADK event skip (no JSON): %s", ser2)
+                    continue
+
+            await websocket.send_text(event_json)
 
     try:
         downstream_task_ref = asyncio.create_task(downstream_task())

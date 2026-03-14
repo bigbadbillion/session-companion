@@ -17,8 +17,9 @@ COPY . ./backend/
 # Cloud Run sets PORT env var (default 8080)
 ENV PORT=8080
 
-# ADK configuration
-ENV GOOGLE_GENAI_USE_VERTEXAI=TRUE
+# ADK: match local dev — use Google AI + API key for Live (Vertex native-audio preview
+# often returns WebSocket 1008 policy violation on Cloud Run). Override in Cloud Run if Vertex allowlisted.
+ENV GOOGLE_GENAI_USE_VERTEXAI=FALSE
 
 EXPOSE ${PORT}
 
