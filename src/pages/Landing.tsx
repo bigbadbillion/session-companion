@@ -1,6 +1,6 @@
 import { motion, useScroll, useTransform } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Mic, Shield, Heart, Sparkles, ChevronDown, Check, Star, Loader2 } from "lucide-react";
+import { ArrowRight, Mic, Shield, Heart, Sparkles, ChevronDown, Check, Star, Loader2, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -318,6 +318,28 @@ const Landing = () => {
               Less than a tenth of one therapy session to make all of them better.
             </motion.p>
           </motion.div>
+
+          {/* Launch promotion */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+            className="mb-10"
+          >
+            <div className="relative rounded-2xl border-2 border-primary/30 bg-gradient-to-br from-sage-light/50 to-primary/5 px-6 py-5 text-center shadow-soft">
+              <div className="flex justify-center mb-2">
+                <Gift className="h-5 w-5 text-primary" />
+              </div>
+              <p className="font-display font-semibold text-foreground text-lg mb-1">
+                Launch offer: Free Pro for early supporters
+              </p>
+              <p className="text-sm text-muted-foreground max-w-xl mx-auto">
+                Everyone who signs up now gets <strong className="text-foreground">Pro at no cost through May</strong> — unlimited sessions, pattern tracking, and full history. This is our thank-you to our first users; no payment required.
+              </p>
+            </div>
+          </motion.div>
+
           <motion.div
             className="grid md:grid-cols-2 gap-6"
             initial="hidden"
@@ -363,7 +385,10 @@ const Landing = () => {
                   <CardDescription>Every session counts</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="text-3xl font-display font-bold text-foreground">$14<span className="text-base font-normal text-muted-foreground">/month</span></div>
+                  <div>
+                    <div className="text-3xl font-display font-bold text-foreground">$14<span className="text-base font-normal text-muted-foreground">/month</span></div>
+                    <p className="text-xs text-primary font-medium mt-1">Free through May for everyone who signs up now</p>
+                  </div>
                   <ul className="space-y-3 text-sm text-foreground/80">
                     {[
                       "Unlimited prep sessions",
@@ -378,7 +403,7 @@ const Landing = () => {
                     ))}
                   </ul>
                   <Button variant="hero" className="w-full" onClick={handleSignIn} disabled={signingIn}>
-                    Start Free Trial
+                    Get Free Pro
                   </Button>
                 </CardContent>
               </Card>

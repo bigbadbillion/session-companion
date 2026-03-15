@@ -171,9 +171,9 @@ const Session = () => {
       {/* Session header */}
       <header className="border-b border-border bg-background/90 backdrop-blur-xl px-6 py-3">
         <div className="container mx-auto max-w-3xl flex items-center justify-between gap-4 min-w-0">
-          <div className="flex items-center gap-3 min-w-0 flex-shrink">
+          <div className="flex items-center gap-3 flex-shrink-0">
             <img src={preludeLogo} alt="" className="h-8 w-8 rounded-lg object-contain flex-shrink-0" />
-            <PreludeBrand size="sm" className="truncate" />
+            <PreludeBrand size="sm" />
           </div>
           <div className="flex items-center gap-3 flex-wrap justify-end">
             {/* On mobile: status dot after timer to avoid overlapping "Prelude" (order-3 md:order-1) */}
