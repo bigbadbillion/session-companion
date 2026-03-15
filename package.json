@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "start:server": "backend/.venv/bin/python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8000",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:diagram": "mmdc -i docs/architecture-overview.mmd -o docs/architecture-overview.png -w 1200 -H 900 -s 2 && mmdc -i docs/architecture-agentic-flow.mmd -o docs/architecture-agentic-flow.png -w 1600 -H 1200 -s 2"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -71,6 +72,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^11.4.0",
     "@eslint/js": "^9.32.0",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.6.0",

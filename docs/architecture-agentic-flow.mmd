@@ -1,0 +1,40 @@
+flowchart TB
+  subgraph SessionAgent["Session Agent - 12 tools"]
+    direction TB
+    subgraph Row1[" "]
+      direction LR
+      T1["get_previous_session_context"]
+      T2["get_session_context_for_patient"]
+      T3["get_current_phase"]
+      T4["advance_phase"]
+      T5["log_topic"]
+      T6["get_highest_weight_topic"]
+    end
+    subgraph Row2[" "]
+      direction LR
+      T7["get_memory_cues"]
+      T8["suggest_follow_ups"]
+      T9["save_patient_words"]
+      T10["flag_distress"]
+      T11["get_session_summary"]
+      T12["cleanup_session"]
+    end
+    Row1 --> Row2
+    LLMNote["When called: LLM-driven during conversation. Prompt instructs when to use each e.g. log_topic on emotional weight, flag_distress if acute distress. No fixed order."]
+    Row2 --> LLMNote
+  end
+
+  subgraph BriefAgent["Brief Generator - 4 tools"]
+    direction TB
+    Step1["1. get_patient_patterns"]
+    Step2["2. get_recent_briefs"]
+    Step3["3. Model analyzes transcript, builds brief JSON"]
+    Step4["4. update_patterns"]
+    Step5["5. save_brief"]
+    Step1 --> Step2
+    Step2 --> Step3
+    Step3 --> Step4
+    Step4 --> Step5
+  end
+
+  SessionEnd["Session ends"] --> BriefAgent

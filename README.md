@@ -2,20 +2,25 @@
 
 Voice-first prep companion for therapy sessions: React web app + FastAPI backend (Google ADK / Gemini) for live audio sessions and brief generation. Auth and data via Firebase.
 
+**Live app:** [https://prelude.echovault.me](https://prelude.echovault.me) (Vercel) — try it without running locally. For voice sessions with speakers (no headphones), echo can occur on the deployed app due to higher network latency; use **headphones** for the best experience, or run the backend locally and point the deployed frontend at it (e.g. ngrok) for same behavior as full local. See [PRD §12 Known Risks](prelude-prd.md#12-known-risks--mitigations).
+
 ## Stack
 
 - **Frontend:** Vite, React, TypeScript, Tailwind, shadcn-ui, Firebase Auth
 - **Backend:** Python, FastAPI, uvicorn, Google GenAI / ADK
-- **Deploy:** Docker (`backend/Dockerfile`), Cloud Build (`cloudbuild.yaml`)
+- **Deploy:** Backend on Google Cloud Run; frontend on Vercel. Docker (`backend/Dockerfile`), Cloud Build (`cloudbuild.yaml`)
 
 ## Prerequisites
 
 - Node.js 18+ and npm
 - Python 3.11+ (backend virtualenv recommended at `backend/.venv`)
+- (Optional) [Google Cloud SDK](https://cloud.google.com/sdk) and a [Firebase](https://console.firebase.google.com/) project if you want to deploy the backend or use your own Firebase
 
 ## Setup
 
 ```sh
+git clone <repo-url> && cd session-companion
+
 # Frontend + tooling
 npm install
 
@@ -25,12 +30,22 @@ cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 ## Environment
 
-Create a **backend** `.env` (or project root `.env`) with the variables your deployment expects. Do not commit secrets. Typical names include:
+Do not commit secrets. Create a `.env` file at the project root or in `backend/` as needed.
 
-- `GEMINI_API_KEY` or `GOOGLE_API_KEY` (GenAI)
-- Firebase / Google Cloud settings as required by the app
+**Backend** (project root or `backend/`):
 
-Frontend build may expect public Firebase config via Vite env prefixes (see `scripts/check-vite-env.cjs` and your hosting setup).
+- `GEMINI_API_KEY` or `GOOGLE_API_KEY` — required for ADK / Gemini.
+- (Optional) `GOOGLE_APPLICATION_CREDENTIALS` — path to service account JSON if using Firebase Admin (e.g. auth) locally.
+
+Full list: see [prelude-prd.md](prelude-prd.md) Section 11.
+
+**Frontend** (`.env` at repo root; Vite inlines these at build time):
+
+- **Local dev:** Optional. If omitted, `npm run dev` proxies to `http://localhost:8000` (see [src/lib/api-base.ts](src/lib/api-base.ts); empty `VITE_BACKEND_URL`).
+- **Firebase (required for auth):** `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` (see [src/lib/firebase.ts](src/lib/firebase.ts)).
+- **Production build (e.g. Vercel):** `VITE_BACKEND_URL` = your Cloud Run backend URL (e.g. `https://prelude-backend-366905720098.us-central1.run.app`). Without this, WebSocket and API calls fail in production.
+
+**Firebase Console:** Enable **Authentication → Sign-in method → Email/Password** so email sign-up works (see PRD F5).
 
 ## Run locally
 
@@ -39,14 +54,32 @@ Frontend build may expect public Firebase config via Vite env prefixes (see `scr
 npm run dev
 ```
 
-- API: `http://localhost:8000` (e.g. `GET /api/health`)
-- Client: Vite default port (see terminal output)
+- Backend: typically `http://localhost:8000` (health check: `GET http://localhost:8000/api/health`).
+- Frontend: Vite’s port (e.g. 5173; see terminal output).
+
+Backend only (API testing):
 
 ```sh
-# Or separately
+cd backend && uvicorn backend.api.main:app --reload
+```
+
+Or run frontend and backend separately:
+
+```sh
 npm run dev:client
 npm run start:server
 ```
+
+## Deploy
+
+**Backend (Cloud Run):** From repo root, `gcloud builds submit --config cloudbuild.yaml .` See [prelude-prd.md](prelude-prd.md) Phase 7 runbook (project, Secret Manager `gemini-api-key`, IAM).
+
+**Frontend (Vercel):** Set the env vars above; `VITE_BACKEND_URL` must point to your Cloud Run URL. Build command: `npm run build`; output directory: `dist/`.
+
+## Architecture
+
+- **Diagram (overview + agentic flow):** [docs/architecture.md](docs/architecture.md)
+- **PNG for submission:** [docs/architecture-overview.png](docs/architecture-overview.png), [docs/architecture-agentic-flow.png](docs/architecture-agentic-flow.png) (generate with `npm run build:diagram`).
 
 ## Build
 
@@ -59,6 +92,10 @@ npm run build
 ```sh
 npm test
 ```
+
+## Hackathon
+
+Built for the **Gemini Live Agent Challenge**. Architecture diagram source and PNGs are in `docs/`; see links above.
 
 ## License
 

@@ -1,0 +1,37 @@
+flowchart TB
+  subgraph WebApp["Patient Web App"]
+    React["React + Vite + Firebase"]
+    Mic["Mic/speaker interface"]
+    Start["Start Prep Session"]
+    Dashboard["Brief dashboard"]
+    History["Session history and trends"]
+    React --> Mic
+    React --> Start
+    React --> Dashboard
+    React --> History
+  end
+
+  subgraph CloudRun["Google Cloud Run"]
+    FastAPI["FastAPI + ADK Orchestrator"]
+    subgraph SessionAgent["Session Agent ADK"]
+      Live["Gemini Live API"]
+      Phase["4-phase conversation"]
+      Tone["Tone metadata capture"]
+    end
+    subgraph BriefAgent["Brief Generator ADK"]
+      Flash["Gemini 2.0 Flash"]
+      Brief["Structured brief output"]
+      Pattern["Pattern detection"]
+    end
+    FastAPI --> SessionAgent
+    SessionAgent -->|"transcript + emotional metadata"| BriefAgent
+  end
+
+  subgraph Storage["Persistence"]
+    Firestore["Firestore: users, sessions, briefs, patterns"]
+    CloudStorage["Cloud Storage optional: PDF, audio"]
+  end
+
+  WebApp -->|"WebSocket + REST"| CloudRun
+  BriefAgent --> Firestore
+  BriefAgent --> CloudStorage
