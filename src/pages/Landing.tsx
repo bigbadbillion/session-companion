@@ -1,6 +1,6 @@
 import { motion, useScroll, useTransform } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Mic, Shield, Heart, Sparkles, ChevronDown, Check, Star, Loader2, Gift } from "lucide-react";
+import { ArrowRight, Mic, Shield, Heart, Sparkles, ChevronDown, Check, Star, Gift } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import PreludeBrand from "@/components/PreludeBrand";
 import { useRef, useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import SignInDialog from "@/components/SignInDialog";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
@@ -39,8 +40,8 @@ const staggerContainer = {
 
 const Landing = () => {
   const navigate = useNavigate();
-  const { user, loading, signInWithGoogle } = useAuth();
-  const [signingIn, setSigningIn] = useState(false);
+  const { user, loading } = useAuth();
+  const [signInDialogOpen, setSignInDialogOpen] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const heroY = useTransform(scrollYProgress, [0, 1], [0, 150]);
@@ -53,18 +54,8 @@ const Landing = () => {
     }
   }, [user, loading, navigate]);
 
-  const handleSignIn = async () => {
-    setSigningIn(true);
-    try {
-      await signInWithGoogle();
-    } catch (error: any) {
-      console.error("Auth error:", error);
-      if (error.code !== "auth/popup-closed-by-user" && error.code !== "auth/redirect-cancelled-by-user") {
-        toast.error(`Sign-in failed: ${error.code || error.message}`);
-      }
-    } finally {
-      setSigningIn(false);
-    }
+  const handleSignIn = () => {
+    setSignInDialogOpen(true);
   };
 
   return (
@@ -91,9 +82,7 @@ const Landing = () => {
               size="sm"
               className="hidden sm:inline-flex rounded-full px-5"
               onClick={handleSignIn}
-              disabled={signingIn}
             >
-              {signingIn ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
               Sign In
             </Button>
             <Button
@@ -101,9 +90,7 @@ const Landing = () => {
               size="sm"
               className="rounded-full px-5"
               onClick={handleSignIn}
-              disabled={signingIn}
             >
-              {signingIn ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
               Get Started
             </Button>
           </div>
@@ -159,9 +146,7 @@ const Landing = () => {
               size="lg"
               className="gap-2 px-8 group shadow-glow"
               onClick={handleSignIn}
-              disabled={signingIn}
             >
-              {signingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Start Your First Session
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
             </Button>
@@ -363,7 +348,7 @@ const Landing = () => {
                       </li>
                     ))}
                   </ul>
-                  <Button variant="outline" className="w-full rounded-full" onClick={handleSignIn} disabled={signingIn}>
+                  <Button variant="outline" className="w-full rounded-full" onClick={handleSignIn}>
                     Get Started
                   </Button>
                 </CardContent>
@@ -402,7 +387,7 @@ const Landing = () => {
                       </li>
                     ))}
                   </ul>
-                  <Button variant="hero" className="w-full" onClick={handleSignIn} disabled={signingIn}>
+                  <Button variant="hero" className="w-full" onClick={handleSignIn}>
                     Get Free Pro
                   </Button>
                 </CardContent>
@@ -427,7 +412,7 @@ const Landing = () => {
           <p className="text-muted-foreground mb-8 max-w-md mx-auto">
             Your first session is free. No credit card required. Just your voice and 10 minutes.
           </p>
-          <Button variant="hero" size="lg" className="gap-2 group shadow-glow" onClick={handleSignIn} disabled={signingIn}>
+          <Button variant="hero" size="lg" className="gap-2 group shadow-glow" onClick={handleSignIn}>
             Start Your First Session
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </Button>
@@ -446,6 +431,8 @@ const Landing = () => {
       </section>
 
       <CrisisFooter />
+
+      <SignInDialog open={signInDialogOpen} onOpenChange={setSignInDialogOpen} />
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, X, Shield, Loader2, AlertTriangle } from "lucide-react";
+import { Mic, MicOff, X, Shield, Loader2, AlertTriangle, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,9 +17,14 @@ const DISCLAIMER_TEXT =
 
 const Session = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, sendEmailVerificationForCurrentUser, reloadUser } = useAuth();
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [reloadLoading, setReloadLoading] = useState(false);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  const isEmailProvider = user?.providerData?.some((p) => p.providerId === "password");
+  const needsEmailVerification = isEmailProvider && user && !user.emailVerified;
 
   const patientName = user?.displayName?.split(" ")[0] ?? "there";
 
@@ -54,6 +59,78 @@ const Session = () => {
       navigate("/dashboard");
     }
   };
+
+  // ── Email verification required (email/password sign-ups) ──────────────
+
+  if (needsEmailVerification) {
+    const handleResend = async () => {
+      setResendLoading(true);
+      try {
+        await sendEmailVerificationForCurrentUser();
+        const { toast } = await import("sonner");
+        toast.success("Verification email sent. Check your inbox.");
+      } catch (error: unknown) {
+        const err = error as { code?: string; message?: string };
+        const { toast } = await import("sonner");
+        toast.error(err.code === "auth/too-many-requests" ? "Too many attempts. Wait a few minutes." : err.message ?? "Could not send.");
+      } finally {
+        setResendLoading(false);
+      }
+    };
+    const handleReload = async () => {
+      setReloadLoading(true);
+      try {
+        await reloadUser();
+      } finally {
+        setReloadLoading(false);
+      }
+    };
+    return (
+      <div className="flex min-h-screen flex-col bg-background">
+        <div className="flex-1 flex items-center justify-center px-6">
+          <motion.div
+            className="max-w-lg w-full"
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <Card className="shadow-lifted border-border/60 rounded-2xl">
+              <CardHeader className="pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
+                    <Mail className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl">Verify your email first</CardTitle>
+                    <CardDescription>We need to confirm your email before you can start a voice session.</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <p className="text-sm text-foreground/80 leading-relaxed">
+                  Check your inbox for a verification link from Prelude. Click it, then come back and tap &quot;I&apos;ve verified&quot; to continue.
+                </p>
+                <div className="space-y-3">
+                  <Button variant="outline" className="w-full gap-2" onClick={handleResend} disabled={resendLoading}>
+                    {resendLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Resend verification email
+                  </Button>
+                  <Button variant="hero" className="w-full gap-2" onClick={handleReload} disabled={reloadLoading}>
+                    {reloadLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    I&apos;ve verified — continue
+                  </Button>
+                  <Button variant="ghost" className="w-full" onClick={() => navigate("/dashboard")}>
+                    Go back
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        </div>
+        <CrisisFooter />
+      </div>
+    );
+  }
 
   // ── Disclaimer screen ──────────────────────────────────────────────────
 

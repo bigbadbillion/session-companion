@@ -1,11 +1,15 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { User, Shield, Trash2, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import AppLayout from "@/components/AppLayout";
 import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 20 },
@@ -16,7 +20,24 @@ const fadeUp = {
 };
 
 const Settings = () => {
-  const { user } = useAuth();
+  const { user, updateDisplayName } = useAuth();
+  const [displayNameEdit, setDisplayNameEdit] = useState("");
+  const [nameLoading, setNameLoading] = useState(false);
+
+  const handleSaveName = async () => {
+    const name = displayNameEdit.trim();
+    if (!name) return;
+    setNameLoading(true);
+    try {
+      await updateDisplayName(name);
+      setDisplayNameEdit("");
+      toast.success("Name updated. The agent will use it in sessions.");
+    } catch (error: unknown) {
+      toast.error((error as Error).message ?? "Could not update name.");
+    } finally {
+      setNameLoading(false);
+    }
+  };
 
   return (
     <AppLayout>
@@ -42,13 +63,27 @@ const Settings = () => {
                   {[
                     { label: "Name", value: user?.displayName || "—" },
                     { label: "Email", value: user?.email || "—" },
-                    { label: "Signed in with", value: "Google" },
+                    { label: "Signed in with", value: user?.providerData?.[0]?.providerId === "google.com" ? "Google" : user?.providerData?.[0]?.providerId === "password" ? "Email" : user?.providerData?.[0]?.providerId ?? "—" },
                   ].map((item) => (
                     <div key={item.label} className="flex items-center justify-between">
                       <span className="text-sm text-foreground">{item.label}</span>
                       <span className="text-sm text-muted-foreground">{item.value}</span>
                     </div>
                   ))}
+                  <div className="pt-2 border-t border-border/50 space-y-2">
+                    <Label className="text-xs text-muted-foreground">Display name (used by the voice agent)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder={user?.displayName || "Your first name or nickname"}
+                        value={displayNameEdit}
+                        onChange={(e) => setDisplayNameEdit(e.target.value)}
+                        className="rounded-lg flex-1"
+                      />
+                      <Button size="sm" className="rounded-lg" onClick={handleSaveName} disabled={nameLoading || !displayNameEdit.trim()}>
+                        {nameLoading ? "Saving…" : "Save"}
+                      </Button>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
@@ -67,7 +102,7 @@ const Settings = () => {
                 <CardContent>
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <span className="text-sm font-medium text-foreground">Pro Plan</span>
+                      <span className="text-sm font-medium text-foreground">Pro Plan (free till May)</span>
                       <p className="text-xs text-muted-foreground">$14/month · Unlimited sessions</p>
                     </div>
                     <Badge className="bg-sage-light text-primary border-0">Active</Badge>
