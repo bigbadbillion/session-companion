@@ -170,18 +170,19 @@ const Session = () => {
     <div className="flex min-h-screen flex-col bg-background">
       {/* Session header */}
       <header className="border-b border-border bg-background/90 backdrop-blur-xl px-6 py-3">
-        <div className="container mx-auto max-w-3xl flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="container mx-auto max-w-3xl flex items-center justify-between gap-4 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-shrink">
             <img src={preludeLogo} alt="" className="h-8 w-8 rounded-lg object-contain flex-shrink-0" />
-            <PreludeBrand size="sm" />
+            <PreludeBrand size="sm" className="truncate" />
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            {/* On mobile: status dot after timer to avoid overlapping "Prelude" (order-3 md:order-1) */}
             <motion.div
-              className="h-2.5 w-2.5 rounded-full bg-primary"
+              className="h-2.5 w-2.5 rounded-full bg-primary flex-shrink-0 order-3 md:order-1"
               animate={isActive ? { scale: [1, 1.3, 1], opacity: [1, 0.6, 1] } : {}}
               transition={{ repeat: Infinity, duration: 1.5 }}
             />
-            <Badge variant="secondary" className="font-normal text-xs">
+            <Badge variant="secondary" className="font-normal text-xs order-1 md:order-2">
               {isConnecting
                 ? "Connecting..."
                 : session.isAgentThinking
@@ -190,11 +191,11 @@ const Session = () => {
                     ? "Listening..."
                     : "Ready"}
             </Badge>
-            <span className="text-sm text-muted-foreground font-mono">
+            <span className="text-sm text-muted-foreground font-mono order-2 md:order-3">
               {formatTime(session.elapsed)} / 10:00
             </span>
             {(isActive || isConnecting) && (
-              <Button variant="ghost" size="sm" onClick={handleEndSession} className="text-muted-foreground">
+              <Button variant="ghost" size="sm" onClick={handleEndSession} className="text-muted-foreground order-4">
                 <X className="h-4 w-4 mr-1" /> End
               </Button>
             )}
