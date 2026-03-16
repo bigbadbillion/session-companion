@@ -1,3 +1,6 @@
+# Prelude — Voice-first therapy prep companion
+# 10-minute AI voice conversation before each therapy session. Surfaces what matters; user arrives prepared with a structured brief. Built with Gemini Live, Google ADK, React, Firebase; backend on Google Cloud Run. For adults in therapy who want to get more out of each session.
+
 User-agent: Googlebot
 Allow: /
 
