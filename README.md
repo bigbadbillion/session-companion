@@ -2,7 +2,7 @@
 
 Voice-first prep companion for therapy sessions: React web app + FastAPI backend (Google ADK / Gemini) for live audio sessions and brief generation. Auth and data via Firebase.
 
-**Live app:** [https://prelude.echovault.me](https://prelude.echovault.me) (Vercel) — try it without running locally. Voice sessions use a WebRTC loopback so Chrome applies echo cancellation to the agent’s voice (works with speakers; no headphones required). If loopback fails in your environment, use headphones as fallback. See [PRD §12 Known Risks](prelude-prd.md#12-known-risks--mitigations).
+**Live app:** [https://prelude.echovault.me](https://prelude.echovault.me) (Vercel) — try it without running locally. Voice sessions use a WebRTC loopback so Chrome applies echo cancellation to the agent’s voice (works with speakers; no headphones required). If loopback fails in your environment, use headphones as fallback. For additional product context or risk details, email ugo@echovault.me.
 
 ## Stack
 
@@ -37,7 +37,7 @@ Do not commit secrets. Create a `.env` file at the project root or in `backend/`
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` — required for ADK / Gemini.
 - (Optional) `GOOGLE_APPLICATION_CREDENTIALS` — path to service account JSON if using Firebase Admin (e.g. auth) locally.
 
-Full list: see [prelude-prd.md](prelude-prd.md) Section 11.
+For a fuller description of configuration and environment options, email ugo@echovault.me.
 
 **Frontend** (`.env` at repo root; Vite inlines these at build time):
 
@@ -45,7 +45,7 @@ Full list: see [prelude-prd.md](prelude-prd.md) Section 11.
 - **Firebase (required for auth):** `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` (see [src/lib/firebase.ts](src/lib/firebase.ts)).
 - **Production build (e.g. Vercel):** `VITE_BACKEND_URL` = your Cloud Run backend URL (e.g. `https://prelude-backend-366905720098.us-central1.run.app`). Without this, WebSocket and API calls fail in production.
 
-**Firebase Console:** Enable **Authentication → Sign-in method → Email/Password** so email sign-up works (see PRD F5).
+**Firebase Console:** Enable **Authentication → Sign-in method → Email/Password** so email sign-up works.
 
 ## Run locally
 
@@ -72,7 +72,7 @@ npm run start:server
 
 ## Deploy
 
-**Backend (Cloud Run):** From repo root, `gcloud builds submit --config cloudbuild.yaml .` See [prelude-prd.md](prelude-prd.md) Phase 7 runbook (project, Secret Manager `gemini-api-key`, IAM).
+**Backend (Cloud Run):** From repo root, `gcloud builds submit --config cloudbuild.yaml .`. For deployment runbook details (projects, secrets, IAM), email ugo@echovault.me.
 
 **Frontend (Vercel):** Set the env vars above; `VITE_BACKEND_URL` must point to your Cloud Run URL. Build command: `npm run build`; output directory: `dist/`.
 
