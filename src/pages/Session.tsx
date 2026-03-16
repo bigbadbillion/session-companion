@@ -33,6 +33,13 @@ const Session = () => {
     patientName,
   });
 
+  // Basic Safari on macOS detection for echo warning.
+  const isMacSafari = typeof navigator !== "undefined"
+    ? /Macintosh/.test(navigator.userAgent) &&
+      /Safari/.test(navigator.userAgent) &&
+      !/Chrome|Chromium|Edg\//.test(navigator.userAgent)
+    : false;
+
   const formatTime = useCallback((s: number) => {
     const m = Math.floor(s / 60);
     const sec = s % 60;
@@ -285,6 +292,26 @@ const Session = () => {
 
       {/* Main session area */}
       <div className="flex-1 flex flex-col container mx-auto max-w-3xl px-6 py-8">
+        {isMacSafari && (
+          <div className="mb-4">
+            <Card className="border-amber-200/70 bg-amber-50/80 dark:bg-amber-950/20">
+              <CardContent className="py-3 px-4 flex items-start gap-3">
+                <div className="mt-0.5">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="text-xs text-amber-900 dark:text-amber-100">
+                  <p className="font-medium">For the best experience on Safari for macOS</p>
+                  <p className="mt-0.5">
+                    Safari on Mac may let Prelude hear its own voice when using speakers.
+                    For this demo, please use headphones or switch to Chrome for the
+                    cleanest prep session.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {session.status === "idle" ? (
           /* ── Tap to begin ────────────────────────────────────────── */
           <motion.div

@@ -106,6 +106,10 @@ export class GeminiLiveClient {
   private setupNotified = false;
   private handshakeTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private _serverErrorReceived = false;
+  // When true, the client intentionally closed the socket (e.g. endSession).
+  // Some browsers (notably iOS/macOS Safari) may still report non-1000 codes
+  // on close; we don't want to surface those as "connection errors".
+  private _userInitiatedClose = false;
 
   constructor(
     config: GeminiLiveConfig,
@@ -194,7 +198,10 @@ export class GeminiLiveClient {
     this.ws.onerror = () => {
       this.clearHandshakeTimeout();
       this._connected = false;
-      this.callbacks.onError?.("WebSocket connection error");
+      // If the user already requested a clean close, ignore late onerror.
+      if (!this._userInitiatedClose) {
+        this.callbacks.onError?.("WebSocket connection error");
+      }
     };
 
     this.ws.onclose = (ev) => {
@@ -203,6 +210,12 @@ export class GeminiLiveClient {
       this._connected = false;
       // If we already showed the server's error message, don't show a second one
       if (this._serverErrorReceived) {
+        this.callbacks.onClose?.();
+        return;
+      }
+      // If the user initiated the close (e.g. endSession), always treat it as
+      // a normal closure regardless of the code Safari reports.
+      if (this._userInitiatedClose) {
         this.callbacks.onClose?.();
         return;
       }
@@ -224,6 +237,7 @@ export class GeminiLiveClient {
 
   disconnect(): void {
     this.clearHandshakeTimeout();
+    this._userInitiatedClose = true;
     this._connected = false;
     if (this.ws) {
       // Use 1000 (normal closure) so onclose calls onClose, not onError.
