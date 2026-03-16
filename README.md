@@ -2,7 +2,7 @@
 
 Voice-first prep companion for therapy sessions: React web app + FastAPI backend (Google ADK / Gemini) for live audio sessions and brief generation. Auth and data via Firebase.
 
-**Live app:** [https://prelude.echovault.me](https://prelude.echovault.me) (Vercel) — try it without running locally. For voice sessions with speakers (no headphones), echo can occur on the deployed app due to higher network latency; use **headphones** for the best experience, or run the backend locally and point the deployed frontend at it (e.g. ngrok) for same behavior as full local. See [PRD §12 Known Risks](prelude-prd.md#12-known-risks--mitigations).
+**Live app:** [https://prelude.echovault.me](https://prelude.echovault.me) (Vercel) — try it without running locally. Voice sessions use a WebRTC loopback so Chrome applies echo cancellation to the agent’s voice (works with speakers; no headphones required). If loopback fails in your environment, use headphones as fallback. See [PRD §12 Known Risks](prelude-prd.md#12-known-risks--mitigations).
 
 ## Stack
 

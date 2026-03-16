@@ -2,13 +2,8 @@
  * Production backend (Cloud Run). Empty in dev → Vite proxy to localhost:8000.
  * Set in Vercel: VITE_BACKEND_URL=https://prelude-backend-....run.app
  *
- * When API_BASE is set (deployed), the WebSocket goes to Cloud Run and RTT is higher.
- * Higher RTT means agent audio streams over a longer wall-clock time while the mic
- * is still sending, so the mic can capture speaker output (echo). Chrome's AEC does
- * not use our AudioContext playback as reference. So echo can appear only on deployed.
- * Workaround: use headphones when using the deployed app, or run the backend locally
- * and set VITE_BACKEND_URL to a tunnel (e.g. ngrok) so the deployed frontend hits
- * localhost → same RTT as full local. See PRD §12 Known Risks.
+ * Echo on deployed is mitigated by routing agent playback through a WebRTC loopback
+ * so Chrome applies AEC to the mic (see src/lib/audio.ts). See PRD §12 Known Risks.
  */
 const raw = (import.meta.env.VITE_BACKEND_URL as string | undefined) || "";
 export const API_BASE = raw.replace(/\/$/, "");

@@ -132,16 +132,119 @@ export class AudioStreamer {
   }
 }
 
+// ── WebRTC loopback for Chrome/Safari AEC (production echo fix) ──────────────
+// Chrome only applies echo cancellation to audio from RTCPeerConnection.
+// Routing our agent playback through a local loopback makes Chrome treat it as
+// "remote" audio and cancel it from the mic. Safari may use the loopback when
+// it succeeds, or fall back to normal playback (Safari often applies AEC to
+// default output anyway). See Chromium bug 687574 and
+// https://gist.github.com/alexciarlillo/4b9f75516f93c10d7b39282d10cd17bc
+
+const LOOPBACK_TIMEOUT_MS = 4000;
+
+async function createLoopbackAudioElement(
+  sendStream: MediaStream
+): Promise<{ loopbackStream: MediaStream; audioElement: HTMLAudioElement } | null> {
+  const pcA = new RTCPeerConnection();
+  const pcB = new RTCPeerConnection();
+  const loopbackStream = new MediaStream();
+
+  return new Promise((resolve) => {
+    let resolved = false;
+    const cleanup = () => {
+      pcA.close();
+      pcB.close();
+    };
+
+    const tryResolve = () => {
+      if (
+        resolved ||
+        loopbackStream.getTracks().length === 0 ||
+        (pcA.iceConnectionState !== "connected" && pcA.iceConnectionState !== "completed")
+      )
+        return;
+      resolved = true;
+      clearTimeout(timeoutId);
+      const audio = document.createElement("audio");
+      audio.autoplay = true;
+      audio.setAttribute("data-prelude-loopback", "true");
+      audio.style.cssText =
+        "position:fixed;width:0;height:0;opacity:0;pointer-events:none;";
+      audio.srcObject = loopbackStream;
+      document.body.appendChild(audio);
+      resolve({ loopbackStream, audioElement: audio });
+    };
+
+    const timeoutId = setTimeout(() => {
+      if (resolved) return;
+      cleanup();
+      console.warn("[Audio] WebRTC loopback timed out; echo cancellation may be limited.");
+      resolve(null);
+    }, LOOPBACK_TIMEOUT_MS);
+
+    pcB.ontrack = (e) => {
+      e.streams[0]?.getTracks().forEach((t) => loopbackStream.addTrack(t));
+      tryResolve();
+    };
+
+    pcA.onicecandidate = (e) => {
+      if (e.candidate) pcB.addIceCandidate(e.candidate).catch(() => {});
+    };
+    pcB.onicecandidate = (e) => {
+      if (e.candidate) pcA.addIceCandidate(e.candidate).catch(() => {});
+    };
+
+    pcA.oniceconnectionstatechange = () => {
+      if (pcA.iceConnectionState === "failed" || pcA.iceConnectionState === "disconnected") {
+        if (!resolved) {
+          clearTimeout(timeoutId);
+          cleanup();
+          resolve(null);
+        }
+      } else {
+        tryResolve();
+      }
+    };
+
+    sendStream.getTracks().forEach((track) => pcA.addTrack(track, sendStream));
+
+    pcA
+      .createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false })
+      .then((offer) => pcA.setLocalDescription(offer))
+      .then(() => pcB.setRemoteDescription(pcA.localDescription!))
+      .then(() => pcB.createAnswer())
+      .then((answer) => pcB.setLocalDescription(answer))
+      .then(() => pcA.setRemoteDescription(pcB.localDescription!))
+      .then(() => tryResolve())
+      .catch((err) => {
+        if (!resolved) {
+          clearTimeout(timeoutId);
+          cleanup();
+          console.warn("[Audio] WebRTC loopback failed:", err);
+          resolve(null);
+        }
+      });
+  });
+}
+
 // ── AudioPlayer (base64 PCM 24 kHz → speaker) ──────────────────────────────
 
 export class AudioPlayer {
   private audioContext: AudioContext | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private gainNode: GainNode | null = null;
+  private streamDestination: MediaStreamAudioDestinationNode | null = null;
+  private loopbackAudioElement: HTMLAudioElement | null = null;
   private _ready = false;
+  private _loopbackReady = false;
 
   get ready(): boolean {
     return this._ready;
+  }
+
+  /** True when playback is routed through WebRTC loopback (Chrome AEC applies). */
+  get loopbackReady(): boolean {
+    return this._loopbackReady;
   }
 
   async init(): Promise<void> {
@@ -160,8 +263,18 @@ export class AudioPlayer {
     this.gainNode = this.audioContext.createGain();
     this.gainNode.gain.value = 1.0;
 
+    this.streamDestination = this.audioContext.createMediaStreamDestination();
     this.workletNode.connect(this.gainNode);
-    this.gainNode.connect(this.audioContext.destination);
+    this.gainNode.connect(this.streamDestination);
+
+    const result = await createLoopbackAudioElement(this.streamDestination.stream);
+    if (result) {
+      this.loopbackAudioElement = result.audioElement;
+      this._loopbackReady = true;
+    } else {
+      this.gainNode.disconnect();
+      this.gainNode.connect(this.audioContext.destination);
+    }
 
     this._ready = true;
   }
@@ -183,8 +296,12 @@ export class AudioPlayer {
 
   destroy(): void {
     this._ready = false;
+    this._loopbackReady = false;
+    this.loopbackAudioElement?.remove();
+    this.loopbackAudioElement = null;
     this.workletNode?.disconnect();
     this.gainNode?.disconnect();
+    this.streamDestination = null;
     this.audioContext?.close();
     this.workletNode = null;
     this.gainNode = null;
