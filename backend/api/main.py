@@ -49,7 +49,7 @@ if not os.getenv("GOOGLE_GENAI_USE_VERTEXAI"):
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from google.adk.agents.live_request_queue import LiveRequestQueue
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
@@ -72,6 +72,14 @@ _firebase_auth_error: str | None = None
 
 from backend.session_agent import create_session_agent
 from backend.brief_agent import create_brief_agent
+from backend.rate_limit import (
+    rate_limiting_enabled,
+    release_voice_session,
+    try_acquire_voice_session,
+    try_brief_generation,
+    try_read_heavy,
+    try_weekly_current,
+)
 from backend.tools.session_tools import reset_session_state
 
 logging.basicConfig(
@@ -187,6 +195,21 @@ async def verify_firebase_token_ws(token: str | None) -> str | None:
     return uid
 
 
+def _rate_limit_client_id(uid: str | None, fallback_id: str) -> str:
+    """Prefer verified Firebase uid when auth is enabled."""
+    if auth_enabled() and uid:
+        return uid
+    return fallback_id
+
+
+def _raise_http_rate_limited(retry_after: int) -> None:
+    raise HTTPException(
+        status_code=429,
+        detail="Too many requests. Please try again in a moment.",
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
 # ── Application Setup ─────────────────────────────────────────────────────
 
 app = FastAPI(title="Prelude API", version="1.0.0")
@@ -269,6 +292,7 @@ async def health_check():
             "ok": firestore_ok,
             "error": firestore_error,
         },
+        "rateLimiting": rate_limiting_enabled(),
     }
 
 
@@ -314,9 +338,6 @@ async def voice_session_ws(websocket: WebSocket):
         await websocket.close(code=4401, reason="auth_failed")
         return
 
-    logger.info("Voice session WebSocket connected")
-    reset_session_state()
-
     # Parse optional query params
     patient_name = websocket.query_params.get("patientName", "there")
     user_id = websocket.query_params.get("userId", f"user-{uuid.uuid4().hex[:8]}")
@@ -326,246 +347,262 @@ async def voice_session_ws(websocket: WebSocket):
     if auth_enabled() and uid:
         user_id = uid
 
-    # Create a session agent with user/session IDs so tools can be called correctly
-    patient_agent = create_session_agent(
-        patient_name=patient_name,
-        user_id=user_id,
-        session_id=session_id,
-    )
-    patient_runner = Runner(
-        app_name=SESSION_APP,
-        agent=patient_agent,
-        session_service=session_service,
-    )
-
-    # Ensure session exists
-    session = await session_service.get_session(
-        app_name=SESSION_APP, user_id=user_id, session_id=session_id
-    )
-    if not session:
-        await session_service.create_session(
-            app_name=SESSION_APP, user_id=user_id, session_id=session_id
+    rl_cid = _rate_limit_client_id(uid, user_id)
+    if denied := await try_acquire_voice_session(rl_cid):
+        logger.warning(
+            "Voice session rate limited (%s), retry_after=%s",
+            denied.reason,
+            denied.retry_after,
         )
-
-    run_config = RunConfig(
-        streaming_mode=StreamingMode.BIDI,
-        response_modalities=["AUDIO"],
-        input_audio_transcription=types.AudioTranscriptionConfig(),
-        output_audio_transcription=types.AudioTranscriptionConfig(),
-        session_resumption=types.SessionResumptionConfig(),
-        enable_affective_dialog=True,
-        speech_config=types.SpeechConfig(
-            voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                    voice_name="Puck"
-                )
-            )
-        ),
-    )
-
-    live_request_queue = LiveRequestQueue()
-    downstream_task_ref: asyncio.Task | None = None
-
-    # Prefetch state: run context tools before audible greeting
-    prefetch_done = False
-    prefetch_instruction_sent = False
-    prefetch_tools_required = {
-        "get_previous_session_context",
-        "get_session_context_for_patient",
-    }
-    prefetch_tools_completed: set[str] = set()
-
-    async def upstream_task() -> None:
-        """Receives messages from browser WebSocket and sends to ADK."""
-        nonlocal downstream_task_ref
-        while True:
-            message = await websocket.receive()
-
-            if message.get("type") == "websocket.disconnect":
-                if downstream_task_ref is not None:
-                    downstream_task_ref.cancel()
-                break
-
-            if "bytes" in message:
-                audio_data = message["bytes"]
-                audio_blob = types.Blob(
-                    mime_type="audio/pcm;rate=16000",
-                    data=audio_data,
-                )
-                live_request_queue.send_realtime(audio_blob)
-
-            elif "text" in message:
-                text_data = message["text"]
-                try:
-                    json_msg = json.loads(text_data)
-                    msg_type = json_msg.get("type", "")
-
-                    if msg_type == "text":
-                        content = types.Content(
-                            parts=[types.Part(text=json_msg["text"])]
-                        )
-                        live_request_queue.send_content(content)
-
-                    elif msg_type == "audio":
-                        audio_bytes = base64.b64decode(json_msg["data"])
-                        audio_blob = types.Blob(
-                            mime_type="audio/pcm;rate=16000",
-                            data=audio_bytes,
-                        )
-                        live_request_queue.send_realtime(audio_blob)
-
-                except json.JSONDecodeError:
-                    logger.warning(f"Invalid JSON from client: {text_data[:100]}")
-
-    async def downstream_task() -> None:
-        """Receives ADK events from run_live() and sends to browser."""
-        nonlocal prefetch_done, prefetch_instruction_sent, prefetch_tools_completed
-
-        # On first downstream iteration, inject a short, invisible instruction so the
-        # agent prefetches context before greeting out loud.
-        if not prefetch_instruction_sent:
-            try:
-                live_request_queue.send_content(
-                    types.Content(
-                        parts=[
-                            types.Part(
-                                text=(
-                                    "Before greeting the patient out loud, first call "
-                                    "get_previous_session_context (if available), then "
-                                    "get_session_context_for_patient. After both tool "
-                                    "calls return, begin your audible greeting."
-                                )
-                            )
-                        ]
-                    )
-                )
-                prefetch_instruction_sent = True
-            except Exception as instr_err:  # noqa: BLE001
-                logger.debug("Prefetch instruction send failed: %s", instr_err)
-
-        async for event in patient_runner.run_live(
-            user_id=user_id,
-            session_id=session_id,
-            live_request_queue=live_request_queue,
-            run_config=run_config,
-        ):
-            # Send explicit toolStart so the client can show "Prelude is thinking" (ADK event
-            # serialization may not include function_call in a way the client sees)
-            if getattr(event, "get_function_calls", None):
-                for fc in event.get_function_calls():
-                    name = getattr(fc, "name", None)
-                    if name:
-                        logger.info("Voice session tool call: %s", name)
-                        await websocket.send_text(
-                            json.dumps({"toolStart": True, "tool": name})
-                        )
-                        break
-
-            # Track completion of the initial context tools so we can delay audible
-            # output until both have finished successfully.
-            if getattr(event, "get_function_responses", None) and event.get_function_responses():
-                completed_non_prefetch = False
-                for fr in event.get_function_responses():
-                    tool_name = getattr(fr, "name", None) or getattr(
-                        fr, "function_name", None
-                    )
-                    if not tool_name:
-                        continue
-                    if tool_name not in prefetch_tools_required:
-                        completed_non_prefetch = True
-                    response_payload = getattr(fr, "response", None)
-                    # Treat missing or non-dict responses as non-error; our Firestore tools
-                    # always return a dict with status.
-                    status = None
-                    if isinstance(response_payload, dict):
-                        status = response_payload.get("status")
-
-                    if (
-                        tool_name in prefetch_tools_required
-                        and status != "error"
-                    ):
-                        prefetch_tools_completed.add(tool_name)
-
-                if not prefetch_done and prefetch_tools_required.issubset(
-                    prefetch_tools_completed
-                ):
-                    prefetch_done = True
-
-                # When a tool finishes, send toolEnd so client hides spinner.
-                await websocket.send_text(json.dumps({"toolEnd": True}))
-                # Only nudge after non-prefetch tools. After prefetch (get_previous_session_context,
-                # get_session_context_for_patient) the agent already has "begin your audible greeting"
-                # — nudging here caused a second message before the patient spoke.
-                if completed_non_prefetch:
-                    try:
-                        live_request_queue.send_content(
-                            types.Content(
-                                parts=[
-                                    types.Part(
-                                        text=(
-                                            "(System nudge: If you have not yet spoken out "
-                                            "loud in response to the patient's last turn, "
-                                            "now offer ONE brief verbal response and then "
-                                            "wait for them. If you already responded, "
-                                            "ignore this message.)"
-                                        )
-                                    )
-                                ]
-                            )
-                        )
-                    except Exception as nudge_err:
-                        logger.debug("Post-tool nudge send failed: %s", nudge_err)
-
-            # Only stream ADK payloads to the browser after prefetch (avoid audio before tools).
-            # model_dump_json() can raise on some Live API event shapes (Pydantic enum warnings
-            # in logs) — that was killing the whole WebSocket immediately after connect.
-            if not prefetch_done:
-                continue
-
-            try:
-                event_json = event.model_dump_json(
-                    exclude_none=True, by_alias=True
-                )
-            except Exception as ser_err:
-                logger.warning(
-                    "ADK event model_dump_json failed, using fallback: %s",
-                    ser_err,
-                )
-                try:
-                    raw = event.model_dump(
-                        mode="python", exclude_none=True, by_alias=True
-                    )
-                    event_json = json.dumps(raw, default=str)
-                except Exception as ser2:
-                    logger.warning("ADK event skip (no JSON): %s", ser2)
-                    continue
-
-            await websocket.send_text(event_json)
+        await websocket.close(code=1008, reason="rate_limit")
+        return
 
     try:
-        downstream_task_ref = asyncio.create_task(downstream_task())
-        await asyncio.gather(upstream_task(), downstream_task_ref)
-    except asyncio.CancelledError:
-        logger.info("Voice session ended (client disconnected or task cancelled)")
-    except WebSocketDisconnect:
-        logger.info("Voice session client disconnected")
-    except Exception as e:
-        # Log full error for Cloud Run logs (Console → Logs)
-        logger.error("Voice session error (full): %s", repr(e), exc_info=True)
+        logger.info("Voice session WebSocket connected")
+        reset_session_state()
+
+        # Create a session agent with user/session IDs so tools can be called correctly
+        patient_agent = create_session_agent(
+            patient_name=patient_name,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        patient_runner = Runner(
+            app_name=SESSION_APP,
+            agent=patient_agent,
+            session_service=session_service,
+        )
+
+        # Ensure session exists
+        session = await session_service.get_session(
+            app_name=SESSION_APP, user_id=user_id, session_id=session_id
+        )
+        if not session:
+            await session_service.create_session(
+                app_name=SESSION_APP, user_id=user_id, session_id=session_id
+            )
+
+        run_config = RunConfig(
+            streaming_mode=StreamingMode.BIDI,
+            response_modalities=["AUDIO"],
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            session_resumption=types.SessionResumptionConfig(),
+            enable_affective_dialog=True,
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name="Puck"
+                    )
+                )
+            ),
+        )
+
+        live_request_queue = LiveRequestQueue()
+        downstream_task_ref: asyncio.Task | None = None
+
+        # Prefetch state: run context tools before audible greeting
+        prefetch_done = False
+        prefetch_instruction_sent = False
+        prefetch_tools_required = {
+            "get_previous_session_context",
+            "get_session_context_for_patient",
+        }
+        prefetch_tools_completed: set[str] = set()
+
+        async def upstream_task() -> None:
+            """Receives messages from browser WebSocket and sends to ADK."""
+            nonlocal downstream_task_ref
+            while True:
+                message = await websocket.receive()
+
+                if message.get("type") == "websocket.disconnect":
+                    if downstream_task_ref is not None:
+                        downstream_task_ref.cancel()
+                    break
+
+                if "bytes" in message:
+                    audio_data = message["bytes"]
+                    audio_blob = types.Blob(
+                        mime_type="audio/pcm;rate=16000",
+                        data=audio_data,
+                    )
+                    live_request_queue.send_realtime(audio_blob)
+
+                elif "text" in message:
+                    text_data = message["text"]
+                    try:
+                        json_msg = json.loads(text_data)
+                        msg_type = json_msg.get("type", "")
+
+                        if msg_type == "text":
+                            content = types.Content(
+                                parts=[types.Part(text=json_msg["text"])]
+                            )
+                            live_request_queue.send_content(content)
+
+                        elif msg_type == "audio":
+                            audio_bytes = base64.b64decode(json_msg["data"])
+                            audio_blob = types.Blob(
+                                mime_type="audio/pcm;rate=16000",
+                                data=audio_bytes,
+                            )
+                            live_request_queue.send_realtime(audio_blob)
+
+                    except json.JSONDecodeError:
+                        logger.warning(f"Invalid JSON from client: {text_data[:100]}")
+
+        async def downstream_task() -> None:
+            """Receives ADK events from run_live() and sends to browser."""
+            nonlocal prefetch_done, prefetch_instruction_sent, prefetch_tools_completed
+
+            # On first downstream iteration, inject a short, invisible instruction so the
+            # agent prefetches context before greeting out loud.
+            if not prefetch_instruction_sent:
+                try:
+                    live_request_queue.send_content(
+                        types.Content(
+                            parts=[
+                                types.Part(
+                                    text=(
+                                        "Before greeting the patient out loud, first call "
+                                        "get_previous_session_context (if available), then "
+                                        "get_session_context_for_patient. After both tool "
+                                        "calls return, begin your audible greeting."
+                                    )
+                                )
+                            ]
+                        )
+                    )
+                    prefetch_instruction_sent = True
+                except Exception as instr_err:  # noqa: BLE001
+                    logger.debug("Prefetch instruction send failed: %s", instr_err)
+
+            async for event in patient_runner.run_live(
+                user_id=user_id,
+                session_id=session_id,
+                live_request_queue=live_request_queue,
+                run_config=run_config,
+            ):
+                # Send explicit toolStart so the client can show "Prelude is thinking" (ADK event
+                # serialization may not include function_call in a way the client sees)
+                if getattr(event, "get_function_calls", None):
+                    for fc in event.get_function_calls():
+                        name = getattr(fc, "name", None)
+                        if name:
+                            logger.info("Voice session tool call: %s", name)
+                            await websocket.send_text(
+                                json.dumps({"toolStart": True, "tool": name})
+                            )
+                            break
+
+                # Track completion of the initial context tools so we can delay audible
+                # output until both have finished successfully.
+                if getattr(event, "get_function_responses", None) and event.get_function_responses():
+                    completed_non_prefetch = False
+                    for fr in event.get_function_responses():
+                        tool_name = getattr(fr, "name", None) or getattr(
+                            fr, "function_name", None
+                        )
+                        if not tool_name:
+                            continue
+                        if tool_name not in prefetch_tools_required:
+                            completed_non_prefetch = True
+                        response_payload = getattr(fr, "response", None)
+                        # Treat missing or non-dict responses as non-error; our Firestore tools
+                        # always return a dict with status.
+                        status = None
+                        if isinstance(response_payload, dict):
+                            status = response_payload.get("status")
+
+                        if (
+                            tool_name in prefetch_tools_required
+                            and status != "error"
+                        ):
+                            prefetch_tools_completed.add(tool_name)
+
+                    if not prefetch_done and prefetch_tools_required.issubset(
+                        prefetch_tools_completed
+                    ):
+                        prefetch_done = True
+
+                    # When a tool finishes, send toolEnd so client hides spinner.
+                    await websocket.send_text(json.dumps({"toolEnd": True}))
+                    # Only nudge after non-prefetch tools. After prefetch (get_previous_session_context,
+                    # get_session_context_for_patient) the agent already has "begin your audible greeting"
+                    # — nudging here caused a second message before the patient spoke.
+                    if completed_non_prefetch:
+                        try:
+                            live_request_queue.send_content(
+                                types.Content(
+                                    parts=[
+                                        types.Part(
+                                            text=(
+                                                "(System nudge: If you have not yet spoken out "
+                                                "loud in response to the patient's last turn, "
+                                                "now offer ONE brief verbal response and then "
+                                                "wait for them. If you already responded, "
+                                                "ignore this message.)"
+                                            )
+                                        )
+                                    ]
+                                )
+                            )
+                        except Exception as nudge_err:
+                            logger.debug("Post-tool nudge send failed: %s", nudge_err)
+
+                # Only stream ADK payloads to the browser after prefetch (avoid audio before tools).
+                # model_dump_json() can raise on some Live API event shapes (Pydantic enum warnings
+                # in logs) — that was killing the whole WebSocket immediately after connect.
+                if not prefetch_done:
+                    continue
+
+                try:
+                    event_json = event.model_dump_json(
+                        exclude_none=True, by_alias=True
+                    )
+                except Exception as ser_err:
+                    logger.warning(
+                        "ADK event model_dump_json failed, using fallback: %s",
+                        ser_err,
+                    )
+                    try:
+                        raw = event.model_dump(
+                            mode="python", exclude_none=True, by_alias=True
+                        )
+                        event_json = json.dumps(raw, default=str)
+                    except Exception as ser2:
+                        logger.warning("ADK event skip (no JSON): %s", ser2)
+                        continue
+
+                await websocket.send_text(event_json)
+
         try:
-            error_msg = str(e)
-            if "not found" in error_msg or "not supported" in error_msg:
-                error_msg = "Voice model unavailable. Please try again later."
-            elif "1008" in error_msg or "policy violation" in error_msg.lower() or "not implemented, or supported, or enabled" in error_msg.lower():
-                error_msg = "The voice session ended due to a service limit. You can start a new session."
-            elif "1011" in error_msg or "internal error occurred" in error_msg.lower():
-                error_msg = "The voice connection had an internal error. Please start a new session."
-            await websocket.send_json({"error": error_msg})
-        except Exception:
-            pass
+            downstream_task_ref = asyncio.create_task(downstream_task())
+            await asyncio.gather(upstream_task(), downstream_task_ref)
+        except asyncio.CancelledError:
+            logger.info("Voice session ended (client disconnected or task cancelled)")
+        except WebSocketDisconnect:
+            logger.info("Voice session client disconnected")
+        except Exception as e:
+            # Log full error for Cloud Run logs (Console → Logs)
+            logger.error("Voice session error (full): %s", repr(e), exc_info=True)
+            try:
+                error_msg = str(e)
+                if "not found" in error_msg or "not supported" in error_msg:
+                    error_msg = "Voice model unavailable. Please try again later."
+                elif "1008" in error_msg or "policy violation" in error_msg.lower() or "not implemented, or supported, or enabled" in error_msg.lower():
+                    error_msg = "The voice session ended due to a service limit. You can start a new session."
+                elif "1011" in error_msg or "internal error occurred" in error_msg.lower():
+                    error_msg = "The voice connection had an internal error. Please start a new session."
+                await websocket.send_json({"error": error_msg})
+            except Exception:
+                pass
+        finally:
+            live_request_queue.close()
+            logger.info("Voice session ended, queue closed")
     finally:
-        live_request_queue.close()
-        logger.info("Voice session ended, queue closed")
+        await release_voice_session(rl_cid)
 
 
 # ── Brief Generation (REST) ──────────────────────────────────────────────
@@ -576,6 +613,16 @@ class BriefRequest(BaseModel):
     sessionId: str | None = None
     patientName: str = "the patient"
     durationSeconds: int = 0
+
+    @field_validator("transcript")
+    @classmethod
+    def transcript_within_limit(cls, v: str) -> str:
+        mx = int(os.getenv("BRIEF_TRANSCRIPT_MAX_CHARS", "400000"))
+        if len(v) > mx:
+            raise ValueError(
+                f"transcript exceeds maximum length ({mx} characters)"
+            )
+        return v
 
 
 @app.get("/api/sessions/{patient_id}")
@@ -591,6 +638,11 @@ async def list_sessions(patient_id: str, uid: str | None = Depends(verify_fireba
 
     if auth_enabled() and uid is not None and uid != patient_id:
         raise HTTPException(status_code=403, detail="Forbidden for this patient")
+
+    cid = _rate_limit_client_id(uid, patient_id)
+    if denied := await try_read_heavy(cid):
+        logger.warning("Rate limit sessions list: %s", denied.reason)
+        _raise_http_rate_limited(denied.retry_after)
 
     sessions = await query_documents("sessions", "patientId", "==", patient_id)
     sessions.sort(
@@ -611,6 +663,11 @@ async def list_briefs(patient_id: str, uid: str | None = Depends(verify_firebase
     if auth_enabled() and uid is not None and uid != patient_id:
         raise HTTPException(status_code=403, detail="Forbidden for this patient")
 
+    cid = _rate_limit_client_id(uid, patient_id)
+    if denied := await try_read_heavy(cid):
+        logger.warning("Rate limit briefs list: %s", denied.reason)
+        _raise_http_rate_limited(denied.retry_after)
+
     briefs = await query_documents("briefs", "patientId", "==", patient_id)
     briefs.sort(
         key=lambda b: _to_sorted_timestamp(b.get("generatedAt")), reverse=True
@@ -629,6 +686,11 @@ async def list_weekly_briefs(
 
     if auth_enabled() and uid is not None and uid != patient_id:
         raise HTTPException(status_code=403, detail="Forbidden for this patient")
+
+    cid = _rate_limit_client_id(uid, patient_id)
+    if denied := await try_read_heavy(cid):
+        logger.warning("Rate limit weekly list: %s", denied.reason)
+        _raise_http_rate_limited(denied.retry_after)
 
     weekly = await query_documents("weekly_briefs", "patientId", "==", patient_id)
     weekly.sort(
@@ -654,6 +716,11 @@ async def get_current_weekly_brief(
 
     if auth_enabled() and uid is not None and uid != patient_id:
         raise HTTPException(status_code=403, detail="Forbidden for this patient")
+
+    cid = _rate_limit_client_id(uid, patient_id)
+    if denied := await try_weekly_current(cid):
+        logger.warning("Rate limit weekly current: %s", denied.reason)
+        _raise_http_rate_limited(denied.retry_after)
 
     gen_result = await generate_weekly_briefs_for_patient(patient_id)
 
@@ -695,6 +762,12 @@ async def generate_brief(req: BriefRequest, uid: str | None = Depends(verify_fir
     user_id = req.patientId
     if auth_enabled() and uid is not None and uid != user_id:
         raise HTTPException(status_code=403, detail="Forbidden for this patient")
+
+    cid = _rate_limit_client_id(uid, user_id)
+    if denied := await try_brief_generation(cid):
+        logger.warning("Rate limit generate-brief: %s", denied.reason)
+        _raise_http_rate_limited(denied.retry_after)
+
     brief_session_id = f"brief-{uuid.uuid4().hex[:8]}"
 
     # Step 1: Save session directly (transcript too large for LLM tool param)

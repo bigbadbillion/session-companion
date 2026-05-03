@@ -36,6 +36,7 @@ Do not commit secrets. Create a `.env` file at the project root or in `backend/`
 
 - `GEMINI_API_KEY` or `GOOGLE_API_KEY` — required for ADK / Gemini.
 - (Optional) `GOOGLE_APPLICATION_CREDENTIALS` — path to service account JSON if using Firebase Admin (e.g. auth) locally.
+- **Rate limits:** optional env vars `RL_*` / `RL_ENABLED` on the **Cloud Run** service only (see [backend/rate_limit.py](backend/rate_limit.py)); a Vercel redeploy does not enable or change them.
 
 For a fuller description of configuration and environment options, email ugo@echovault.me.
 
